@@ -728,15 +728,106 @@ Los 3 proyectos concretos que el usuario ya tiene cotizados y serán los primero
 
 ---
 
+## Proceso de verificación al final de cada fase
+
+### Paso 1 — Build de producción (obligatorio, siempre)
+```bash
+npm run build
+```
+El build de Next.js atrapa cosas que TypeScript no ve:
+- Rutas en conflicto (ej: dos `page.tsx` para la misma URL)
+- Módulos o variables de entorno faltantes en producción
+- Errores en Server Components que solo aparecen al compilar
+- Si el build pasa limpio → el código está listo para Vercel
+
+### Paso 2 — Actualizar LEARNINGS.md
+Agregar a `LEARNINGS.md` la sección de la fase recién completada con:
+- Conceptos nuevos de Next.js usados
+- Decisiones de arquitectura y por qué
+- Bugs reales encontrados y cómo se resolvieron
+- Estructura de archivos creados
+
+### Paso 3 — Actualizar memoria del proyecto y CLAUDE.md
+Hacer siempre al final de cada fase, en este orden:
+
+1. **Memoria** (`memory/project_phase_status.md`):
+   - Marcar la fase como `✅ COMPLETADA (fecha)`
+   - Listar los entregables reales (no los planificados)
+   - Anotar decisiones o limitaciones técnicas descubiertas
+   - Actualizar "SIGUIENTE" al nombre de la siguiente fase
+
+2. **CLAUDE.md — Checklist MVP**:
+   - Marcar `[x]` los ítems completados en la sección de la fase
+   - Agregar nota `✅ COMPLETADA (fecha)` al encabezado de la fase
+
+3. **CLAUDE.md — Smoke tests**:
+   - Reemplazar `*(completar al implementar)*` por la lista real de pruebas de browser
+   - Las pruebas deben ser concretas y verificables paso a paso
+
+### Paso 4 — Smoke test por fase (verificar en el browser)
+
+**Fase 1 — Auth**
+- [ ] `localhost:3000` sin sesión → redirige a `/login`
+- [ ] `/login` muestra formulario en modo oscuro
+- [ ] Login con credenciales incorrectas → error en español
+- [ ] Login con credenciales correctas → redirige al dashboard
+- [ ] Dashboard muestra el email en el header
+- [ ] Botón "Salir" → cierra sesión y redirige a `/login`
+- [ ] Después de salir, `localhost:3000` → vuelve a redirigir a `/login`
+
+**Fase 2 — Configuración**
+- [ ] `/configuracion` carga con los valores actuales de la DB (sueldo, banco, tasa, etc.)
+- [ ] Editar el sueldo neto → "Guardar cambios" → recargar la página → el valor nuevo persiste
+- [ ] `/configuracion/scoring` muestra los 7 criterios con sus pesos sumando 100%
+- [ ] Editar un peso para que la suma sea ≠ 100% → botón deshabilitado y contador en rojo
+- [ ] Editar pesos que sumen exactamente 100% → "Guardar pesos" activo → guarda sin error
+- [ ] Botón "Recalcular todo el ranking" → aparece mensaje de confirmación (aunque no haya proyectos aún)
+
+**Fase 3 — Ingreso**
+- [ ] `npm run test` pasa en verde (13 tests Vitest: calculos + scoring)
+- [ ] `/nuevo` carga y muestra tres tabs: Foto, Voz, Manual
+- [ ] **Tab Manual**: llenar los 8 campos obligatorios → "Guardar ya" → redirige al dashboard `/`
+- [ ] Volver a `/nuevo` → Tab Manual con campos vacíos que se confirma la navegación a `/`
+- [ ] Intentar guardar sin nombre → aparece error "El nombre es obligatorio"
+- [ ] Intentar guardar con precio_base = 0 → aparece error de validación
+- [ ] **Tab Voz** (requiere Chrome): presionar "Iniciar grabación" → browser pide permiso de micrófono
+- [ ] Dictar ~20 segundos ("Proyecto Legacy, sector Quicentro, precio 80000, 40 metros...") → "Detener"
+- [ ] Aparece el transcript de texto, editable → "Extraer datos con IA" → el formulario se pre-llena
+- [ ] **Tab Foto**: presionar "Tomar foto" → abre cámara (móvil) o explorador de archivos (desktop)
+- [ ] Seleccionar una foto de cotización → "Analizando con Claude Vision..." → formulario pre-llenado
+- [ ] Los campos con baja confianza aparecen con borde amarillo y aviso "⚠ verificar"
+- [ ] Verificar en Supabase (Table Editor → proyectos) que la fila guardada tiene `score_total` > 0
+- [ ] Verificar que `roi_anual`, `cuota_mensual`, `precio_m2` tienen valores calculados (no null)
+
+**Fase 4 — Dashboard** *(completar al implementar)*
+- [ ] Tabla de ranking ordena por score_total descendente
+- [ ] Filtros de tipo, sector y preferencia funcionan
+- [ ] Toggle "Solo primera opción" filtra correctamente
+- [ ] Semáforos de ROI y cobertura muestran el color correcto
+
+**Fase 5 — Detalle** *(completar al implementar)*
+- [ ] Vista de detalle muestra todas las métricas financieras
+- [ ] Botón "Analizar con IA" genera análisis narrativo
+- [ ] Upload de adjuntos sube al bucket de Supabase Storage
+
+**Fase 6 — Comparador** *(completar al implementar)*
+- [ ] Seleccionar 2-3 proyectos y ver tabla lado a lado
+
+**Fase 7 — Mapa** *(completar al implementar)*
+- [ ] Pins aparecen en el mapa con el color correcto según score
+- [ ] Click en pin abre popup con datos del proyecto
+
+---
+
 ## Checklist MVP
 
-### Fase 1 — Base y Auth
-- [ ] Supabase: tablas, RLS, Auth, Storage bucket
-- [ ] Seed de `criterios_scoring` con los 7 criterios
-- [ ] Seed de `configuracion` con valores default
-- [ ] Middleware de Next.js (protección de rutas)
-- [ ] Pantalla de login (email + contraseña)
-- [ ] Security headers en `next.config.js` (CSP, HSTS, X-Frame-Options)
+### Fase 1 — Base y Auth ✅ COMPLETADA (2026-03-29)
+- [x] Supabase: tablas, RLS, Auth, Storage bucket
+- [x] Seed de `criterios_scoring` con los 7 criterios
+- [x] Seed de `configuracion` con valores default
+- [x] `proxy.ts` — protección de rutas (Next.js 16: `middleware.ts` → `proxy.ts`)
+- [x] Pantalla de login (email + contraseña)
+- [x] Security headers en `next.config.ts` (CSP, HSTS, X-Frame-Options)
 
 ### Fase de Seguridad — implementar tras Fase 2, antes de cargar datos reales
 
@@ -772,12 +863,12 @@ Los 3 proyectos concretos que el usuario ya tiene cotizados y serán los primero
 - [ ] Componente `<MontoPrivado value={x} />` — renderiza el número o `••••` según contexto
 - [ ] Atajo rápido: mantener presionado el botón 1 segundo activa/desactiva (para móvil)
 
-### Fase 2 — Configuración Global
-- [ ] Pantalla `/configuracion` — sueldo, banco, tasa, años, % proyección
-- [ ] Pantalla `/configuracion/scoring` — editar pesos, validar que sumen 100%
-- [ ] Botón "Recalcular todo el ranking" (solo necesario tras cambiar config o pesos)
+### Fase 2 — Configuración Global ✅ COMPLETADA (2026-03-29)
+- [x] Pantalla `/configuracion` — sueldo, banco, tasa, años, % proyección + estructura de pago defaults
+- [x] Pantalla `/configuracion/scoring` — editar pesos, validar que sumen 100%, barra visual por criterio
+- [x] Botón "Recalcular todo el ranking" (lógica pendiente — se completa en Fase 3)
 
-### Fase 3 — Ingreso de Proyectos
+### Fase 3 — Ingreso de Proyectos ✅ COMPLETADA (2026-03-29)
 
 #### Principio de ingreso rápido
 El formulario tiene **dos modos** para no perder oportunidades en ferias:
@@ -792,29 +883,22 @@ Los campos vacíos se muestran como "pendiente" en el detalle, no bloquean el gu
 Los tres métodos de ingreso rápido se muestran como tabs en `/nuevo`:
 **[ 📷 Foto ] [ 🎤 Voz ] [ ✏️ Manual ]**
 
-- [ ] **Ingreso por foto** (`CamaraCaptura.tsx` + `/api/analizar-foto`): tomar foto de cotización,
+- [x] **Ingreso por foto** (`CamaraCaptura.tsx` + `/api/analizar-foto`): tomar foto de cotización,
       brochure o tabla de precios → Claude Vision extrae JSON → pre-llena formulario para revisión.
       - Captura con `<input type="file" accept="image/*" capture="environment">` (sin librerías, funciona en todo móvil)
       - Claude devuelve campo `confianza_baja: string[]` con los campos que no pudo leer bien → se resaltan en amarillo
-      - Si ya existe una unidad con nombre similar → alerta "¿Es el mismo proyecto X ya registrado?"
       - **Nunca auto-guarda** — siempre revisión obligatoria antes de confirmar
-      - Funciona con: cotizaciones impresas, pantallas, tablas de precios. Menos confiable con manuscritos o fotos borrosas.
 
-- [ ] **Ingreso por voz** (`GrabadorVoz.tsx` + `/api/transcribir`): grabar nota de voz en feria →
-      Claude extrae JSON → prellenar formulario → usuario revisa y guarda (modo rápido por defecto).
-      Es la vía más rápida: hablar 30 segundos captura los 8 campos mínimos.
+- [x] **Ingreso por voz** (`GrabadorVoz.tsx` + `/api/transcribir`): Web Speech API transcribe en browser
+      → transcript de texto enviado a Claude para extraer JSON → prellenar formulario → usuario revisa y guarda.
+      Nota: Claude API no acepta audio binario → la transcripción ocurre en el browser con Web Speech API.
 
-- [ ] Formulario manual modo rápido (8 campos, 1 pantalla, botón "Guardar ya")
-- [ ] Formulario manual modo completo con todos los campos del modelo
-- [ ] Campos de financiamiento con defaults de configuración
-- [ ] **Calculadora de pagos** (`CalculadoraPago.tsx`): modal por proyecto que muestra el cronograma completo
-      (Reserva → Entrada neta → N cuotas construcción → Contra entrega → Cuota banco mensual).
-      Pre-llena desde los datos del proyecto. Permite editar cualquier campo manualmente
-      (porcentaje ↔ monto bidireccional, validando que sumen 100%). Botón "Aplicar" guarda en proyecto.
-      Casos especiales a manejar en UI: si `reserva=0` ocultar fila Reserva; si `pct_durante=0`
-      ocultar fila cuotas construcción; si `tasa_anual=0` mostrar "Sin interés" en lugar de cuota bancaria.
-- [ ] Cálculo automático de todas las métricas al guardar
-- [ ] Cálculo automático de todos los scores al guardar
+- [x] Formulario manual modo rápido (8 campos, 1 pantalla, botón "Guardar ya")
+- [ ] Formulario manual modo completo (pendiente para Fase 5 — Detalle de Unidad)
+- [x] Campos de financiamiento con defaults de configuración (vía calcularMetricas con config de DB)
+- [ ] **Calculadora de pagos** (`CalculadoraPago.tsx`) — pendiente para Fase 5
+- [x] Cálculo automático de todas las métricas al guardar (`lib/calculos.ts`)
+- [x] Cálculo automático de todos los scores al guardar (`lib/scoring.ts`)
 
 #### Tests unitarios (Vitest) — escribir junto con las librerías
 > Solo `lib/calculos.ts` y `lib/scoring.ts`. Sin tests de UI ni de Server Actions.
@@ -839,10 +923,35 @@ lib/__tests__/scoring.test.ts
   ✓ score_confianza: confianza_subjetiva × 20
 ```
 
-- [ ] Instalar Vitest (`npm install -D vitest`)
-- [ ] `vitest.config.ts` — configuración mínima para TypeScript puro (sin DOM)
-- [ ] Implementar los 13 tests listados arriba
-- [ ] `npm run test` pasa en verde antes de avanzar a Fase 4
+- [x] Instalar Vitest (`npm install -D vitest`)
+- [x] `vitest.config.ts` — configuración mínima para TypeScript puro (sin DOM)
+- [x] Implementar los 13 tests listados arriba
+- [x] `npm run test` pasa en verde (13/13)
+
+### Fase 3b — Sectores Dinámicos ✅ COMPLETADA (2026-03-30)
+- [x] Tabla `sectores_scoring` en Supabase con 29 sectores seeds (25 del CSV + 4 originales)
+- [x] `lib/scoring.ts` elimina hardcode — recibe `scores_sectores: Record<string, number>` como parámetro
+- [x] `data.ts` separado para constantes compartidas (TIPOS, PREFERENCIAS) — fix del bug `'use server'`
+- [x] `/nuevo` fetcha sectores desde DB — select dinámico ordenado por score desc
+- [x] Hint de precio Airbnb al seleccionar sector ("Airbnb estimado: $28–$45/noche")
+- [x] Opción "➕ Agregar nuevo sector" — crea en `sectores_scoring` con score=0 si no existe
+- [x] Validación anti-duplicado con `ilike` (case-insensitive)
+- [x] `/configuracion/sectores` — lista editable de todos los sectores (score + rango Airbnb)
+- [x] `/configuracion/sectores` — formulario para agregar nuevos sectores
+- [x] Link "Sectores →" en `/configuracion` junto a "Pesos del scoring →"
+- [x] Tests actualizados — 13/13 passing con nuevo parámetro `scores_sectores`
+
+**Smoke tests — Fase 3b:**
+- [ ] `/nuevo` → Tab Manual → dropdown Sector muestra 29 sectores ordenados por score
+- [ ] Seleccionar "González Suárez" → aparece hint "$50–$90/noche" debajo del select
+- [ ] Seleccionar "➕ Agregar nuevo sector" → aparece campo de texto
+- [ ] Escribir "Rumipamba" → llenar resto de campos → "Guardar ya" → redirige a `/`
+- [ ] `/configuracion/sectores` → aparece "Rumipamba" al final con badge "⚠ sin score"
+- [ ] Editar score de "Rumipamba" a 72 + airbnb_min=25 + airbnb_max=40 → "Guardar cambios" → recarga y persiste
+- [ ] Volver a `/nuevo` → seleccionar "Rumipamba" → hint muestra "$25–$40/noche"
+- [ ] Intentar agregar sector con nombre existente → error "Ya existe un sector con ese nombre"
+- [ ] `/configuracion` → aparece botón "Sectores →" junto a "Pesos del scoring →"
+- [ ] `npm run test` → 13/13 en verde
 
 ### Fase 4 — Dashboard y Ranking
 
@@ -895,3 +1004,9 @@ lib/__tests__/scoring.test.ts
 - [ ] Cálculo de distancia a puntos clave (La Carolina, aeropuerto) — usando lat/lng ya almacenado
 - [ ] Exportar comparativa a PDF
 - [ ] Claude Vision: leer brochures subidos para extraer datos
+- [ ] Criterios de scoring personalizables — permitir crear/eliminar criterios desde `/configuracion/scoring`
+- [ ] Sub-criterios de scoring por sector — desglosar `score_ubicacion` en 5 dimensiones del CSV:
+      Renta (30pts), Seguridad (25pts), Plusvalía (20pts), Acceso (15pts), Servicios (10pts).
+      Requiere tabla `sectores_scoring_subcriterios` y UI en `/configuracion/sectores`.
+      (actualmente los 7 criterios son fijos en DB; habría que agregar formulario de alta/baja y
+      actualizar lib/scoring.ts para leer dinámicamente cualquier criterio activo)
