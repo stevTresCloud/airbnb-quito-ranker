@@ -490,6 +490,224 @@ Un precio real como $82,788 no es múltiplo de 1000 → el browser rechaza el su
 
 **Fix:** `step={1}` para precios enteros, `step={0.01}` para áreas decimales.
 
+## Fase Seguridad — Bloqueo de Configuración + Privacidad (2026-03-30)
+
+### 1. WebAuthn — autenticación biométrica en el browser
+
+WebAuthn (Web Authentication API) es el estándar del W3C para autenticación biométrica sin contraseñas. El browser actúa de intermediario entre la app y el sensor biométrico del dispositivo (huella, Face ID, Windows Hello).
+
+**Dos flujos separados:**
+
+```
+REGISTRO (una vez por dispositivo):
+  app → /api/webauthn/register-options → browser → sensor biométrico
+  browser → respuesta firmada → /api/webauthn/register-verify → guarda en DB
+
+AUTENTICACIÓN (cada vez que accede):
+  app → /api/webauthn/auth-options → browser → sensor biométrico
+  browser → firma → /api/webauthn/auth-verify → verifica con clave pública de DB
+```
+
+La clave privada **nunca sale del dispositivo**. El server solo guarda la clave pública y un contador anti-replay.
+
+**Librería usada:** `@simplewebauthn/browser` (cliente) + `@simplewebauthn/server` (servidor).
+
+**RP ID (Relying Party ID):** debe ser el dominio de la app.
+- Desarrollo: `"localhost"`
+- Producción: `"airbnb-quito-ranker.vercel.app"` (configurar en `NEXT_PUBLIC_APP_DOMAIN`)
+- Si el RP ID no coincide con el origen del browser → WebAuthn falla con error de origen.
+
+### 2. Challenge como cookie httpOnly — patrón para autenticación stateless
+
+WebAuthn requiere que el servidor "recuerde" el challenge que generó para verificar que la respuesta del browser corresponde a ese challenge exacto (previene replay attacks).
+
+Opciones de almacenamiento del challenge:
+- **DB**: escala, pero requiere tabla temporal + limpieza
+- **Redis**: rápido pero dependencia extra
+- **Cookie httpOnly** ✅ — elegida: stateless, el browser la envía automáticamente, expira sola
+
+```ts
+// En register-options: generar challenge y guardarlo en cookie
+cookieStore.set('_wac_reg', options.challenge, { httpOnly: true, maxAge: 300 })
+
+// En register-verify: leer el challenge, verificar, borrar
+const expectedChallenge = cookieStore.get('_wac_reg')?.value
+cookieStore.delete('_wac_reg')
+```
+
+La cookie es `httpOnly` → JavaScript del cliente no puede leerla (protege contra XSS).
+La cookie es `sameSite: 'strict'` → no se envía en requests cross-site (protege contra CSRF).
+
+### 3. Sesión de desbloqueo con cookie httpOnly — Server Component puede leerla
+
+Para el ConfigLock, se necesita saber si el usuario ya se autenticó en los últimos 30 min.
+
+**Por qué cookie y no sessionStorage:**
+- `sessionStorage` solo existe en el cliente → el Server Component no puede leerla → habría flash de overlay incluso si el usuario ya está desbloqueado.
+- Cookie httpOnly → el Server Component del layout de `/configuracion/*` la lee directamente → si es válida, ni siquiera renderiza `<ConfigLock>` → sin flash.
+
+```ts
+// En /api/verificar-pin (y auth-verify): setear cookie de desbloqueo
+cookieStore.set('config_unlocked', String(Date.now()), { httpOnly: true, maxAge: 30 * 60 })
+
+// En configuracion/layout.tsx (Server Component): leer la cookie
+const cookieStore = await cookies()
+const unlockedAt = cookieStore.get('config_unlocked')?.value
+const isUnlocked = unlockedAt && (Date.now() - Number(unlockedAt)) < 30 * 60 * 1000
+```
+
+### 4. Layout anidado para proteger un grupo de rutas
+
+`src/app/(app)/configuracion/layout.tsx` es un nuevo layout que solo afecta a las rutas bajo `/configuracion/*`. Next.js anida layouts automáticamente:
+
+```
+(app)/layout.tsx              → aplica a todas las rutas de la app
+(app)/configuracion/layout.tsx → aplica solo a /configuracion y sus sub-rutas
+(app)/configuracion/page.tsx  → recibe ambos layouts anidados
+```
+
+Agregar un layout anidado es la forma limpia de proteger un grupo de rutas sin tocar cada `page.tsx` individualmente. El Server Component del layout puede hacer fetch y pasar props al `<ConfigLock>` Client Component.
+
+### 5. React Context en App Router — patrón AppProviders
+
+El `(app)/layout.tsx` es un Server Component → no puede montar contextos de React.
+
+Solución: `AppProviders.tsx` es un Client Component mínimo que solo existe para proveer el contexto:
+
+```tsx
+// AppProviders.tsx ('use client')
+export function AppProviders({ children }) {
+  return <PrivacyProvider>{children}</PrivacyProvider>
+}
+
+// (app)/layout.tsx (Server Component)
+return (
+  <AppProviders>
+    <Nav />
+    <main>{children}</main>
+  </AppProviders>
+)
+```
+
+Los `children` del Server Component (que son otros Server Components) se pasan a través del Client Component sin "contaminarlos" — esto es válido en Next.js App Router.
+
+### 6. Menú lateral (sidebar) + bottom tab bar — patrón combinado
+
+Para apps mobile-first con también uso en desktop:
+- `md:hidden` oculta el bottom bar en desktop
+- `hidden md:flex` oculta el sidebar en móvil
+- `md:ml-56` desplaza el contenido a la derecha del sidebar (256px = w-56)
+
+El componente `Nav.tsx` es un Client Component porque necesita `usePathname()` para resaltar el ítem activo. El resto del layout puede ser Server Component.
+
+### 7. Long-press en React — hook personalizado con setTimeout
+
+Para el botón de privacidad, long-press de 1 seg activa el modo (útil en móvil sin hover):
+
+```ts
+function useLongPress(onLongPress, onClick, ms = 1000) {
+  const timerRef = useRef(null)
+  const longPressedRef = useRef(false)
+
+  // onMouseDown / onTouchStart: iniciar timer
+  // onMouseUp / onTouchEnd: cancelar si no expiró, o ejecutar click si no fue long-press
+}
+```
+
+`longPressedRef` (no estado) evita un re-render innecesario y previene que el `onClick` se dispare después de un long-press.
+
+### Estructura de archivos creados en Fase Seguridad
+
+```
+src/
+├── contexts/
+│   └── PrivacyContext.tsx        ← Context global + hook usePrivacy
+├── components/
+│   ├── AppProviders.tsx          ← Wrapper Client para PrivacyContext en Server layout
+│   ├── ConfigLock.tsx            ← Overlay de bloqueo (PIN pad + WebAuthn)
+│   ├── MontoPrivado.tsx          ← Renderiza número o ••••
+│   └── Nav.tsx                   ← Actualizado: link Seguridad + botón 👁
+└── app/
+    ├── (app)/
+    │   ├── layout.tsx            ← Actualizado: AppProviders + PrivacyButton en header móvil
+    │   └── configuracion/
+    │       ├── layout.tsx        ← NUEVO: Server Component, lee cookie + envuelve con ConfigLock
+    │       └── seguridad/
+    │           ├── page.tsx      ← Server Component: fetcha estado + credenciales
+    │           ├── SeguridadForm.tsx ← Client Component: formularios PIN + WebAuthn
+    │           └── actions.ts    ← Server Actions: guardarPIN, desactivarPIN, eliminarCredencial
+    └── api/
+        ├── verificar-pin/route.ts
+        └── webauthn/
+            ├── register-options/route.ts
+            ├── register-verify/route.ts
+            ├── auth-options/route.ts
+            └── auth-verify/route.ts
+
+supabase/
+└── fase_seguridad.sql            ← ALTER TABLE configuracion + CREATE TABLE webauthn_credentials
+```
+
+### 8. Re-lock al salir de un grupo de rutas — detectar cambio de pathname en Nav
+
+Para re-bloquear /configuracion/* al salir, `Nav.tsx` (ya Client Component con `usePathname`) compara el pathname anterior con el actual usando un `useRef`:
+
+```ts
+const prevPathname = useRef(pathname)
+
+useEffect(() => {
+  const wasInConfig = prevPathname.current.startsWith('/configuracion')
+  const isInConfig  = pathname.startsWith('/configuracion')
+
+  if (wasInConfig && !isInConfig) {
+    fetch('/api/limpiar-config-lock', { method: 'DELETE' }) // fire-and-forget
+  }
+
+  prevPathname.current = pathname
+}, [pathname])
+```
+
+**Por qué `useRef` y no `useState`:** el valor anterior del pathname es solo una referencia de comparación — no necesita causar un re-render. `useRef` persiste entre renders sin provocarlos.
+
+**Fire-and-forget:** no hacemos `await` del fetch porque el usuario ya navegó. Si falla (red, error), en el peor caso el usuario entra a config sin PIN — riesgo mínimo y se recupera en el siguiente intento.
+
+**Por qué está en Nav y no en un componente separado:** Nav ya importa `usePathname` y está presente en todas las rutas de la app. Añadir el efecto aquí evita crear un componente adicional solo para este propósito.
+
+### 9. Bug real: useCallback después de early return — violación de Reglas de Hooks
+
+**Síntoma:** "Rendered fewer hooks than expected. This may be caused by an accidental early return statement." al entrar el PIN correcto en ConfigLock.
+
+**Causa:** `useCallback` estaba definido DESPUÉS de dos early returns:
+```tsx
+// INCORRECTO — useCallback está después de los early returns
+if (!pinHabilitado && !webauthnHabilitado) return <>{children}</>  // early return
+if (unlocked) return <>{children}</>                               // early return
+
+const verificarPIN = useCallback(...)  // ← hook después del return → crash
+```
+
+Cuando `unlocked` pasa a `true` (PIN correcto), React ejecuta el segundo early return y nunca llega al `useCallback`. En el render anterior tenía 7 hooks (6 useState + 1 useCallback), en este render solo tiene 6 → crash.
+
+**Fix:** Todos los hooks y callbacks siempre ANTES de cualquier `return` condicional:
+```tsx
+// CORRECTO — todos los hooks primero, early returns al final
+const [unlocked, setUnlocked] = useState(false)
+// ... más useState
+const verificarPIN = useCallback(...)  // ← hook definido antes de cualquier return
+
+// Early returns DESPUÉS de todos los hooks
+if (!pinHabilitado && !webauthnHabilitado) return <>{children}</>
+if (unlocked) return <>{children}</>
+
+return <overlay>
+```
+
+**Regla:** En React, los hooks deben llamarse **siempre el mismo número de veces** en cada render. Nunca poner `if (...) return` antes de un `useState`, `useEffect` o `useCallback`. El linter de React (`eslint-plugin-react-hooks`) detecta esto en tiempo de desarrollo.
+
+### Bug potencial a tener en cuenta
+
+**WebAuthn y localhost en producción:** si Vercel asigna una URL de preview diferente a la de producción, el RP ID almacenado en las credenciales registradas no coincidirá con el nuevo origen → error de verificación. Registrar el dispositivo una vez por dominio (dev vs prod son distintos registros).
+
 ## Fase 4 — Dashboard y Ranking
 *(se llenará al completar la fase)*
 

@@ -55,9 +55,11 @@ La app contiene información financiera personal sensible:
 7. **Security headers** en `next.config.js` — CSP, HSTS, X-Frame-Options (protege contra XSS y clickjacking).
 8. **No guardar datos sensibles en localStorage** — solo estado de UI (preferencias visuales).
 
-### Seguridad avanzada (Fase de Seguridad — implementar antes de tener datos reales)
+### Seguridad avanzada ✅ FASE BÁSICA COMPLETADA (2026-03-30)
 
-Ver checklist completo en **Fase de Seguridad** del MVP checklist.
+- **Bloqueo de configuración**: `/configuracion/*` protegido con PIN de 6 dígitos (bcrypt) o biométrico (WebAuthn). Cookie httpOnly de 30 min gestiona la sesión de desbloqueo.
+- **Modo privacidad**: botón 👁 oculta todos los montos con `<MontoPrivado>`. Estado en localStorage.
+- **Pendiente (Fase Seguridad Avanzada)**: 2FA TOTP, inactivity lock, timeout de sesión.
 
 ---
 
@@ -645,6 +647,9 @@ SUPABASE_SERVICE_ROLE_KEY=eyJxxx...     # solo server-side, nunca al cliente
 ANTHROPIC_API_KEY=sk-ant-xxx...         # solo Server Actions / Route Handlers
 
 NEXT_PUBLIC_APP_NAME="Airbnb Quito Ranker"
+
+NEXT_PUBLIC_APP_DOMAIN=localhost   # en Vercel: cambiar al dominio real (ej: airbnb-quito-ranker.vercel.app)
+                                   # Usado por WebAuthn como RP ID — debe coincidir con el origen del browser
 ```
 
 > `.env.local` nunca se commitea. Las mismas variables se ingresan manualmente
@@ -799,6 +804,23 @@ Hacer siempre al final de cada fase, en este orden:
 - [ ] Verificar en Supabase (Table Editor → proyectos) que la fila guardada tiene `score_total` > 0
 - [ ] Verificar que `roi_anual`, `cuota_mensual`, `precio_m2` tienen valores calculados (no null)
 
+**Fase Seguridad — Bloqueo de Configuración + Privacidad**
+- [ ] Sin PIN ni WebAuthn activos: `/configuracion` abre directamente (sin overlay)
+- [ ] `/configuracion/seguridad` → "Activar PIN" → ingresar y confirmar 6 dígitos → mensaje de éxito
+- [ ] Ir a `/configuracion` → aparece overlay con teclado PIN de 6 dígitos
+- [ ] Ingresar PIN correcto → acceso concedido → se puede navegar libremente por toda la sección config
+- [ ] Dentro de config: `/configuracion` → `/configuracion/scoring` → `/configuracion/sectores` → sin PIN
+- [ ] Salir de config: navegar a `/` (Ranking) → volver a `/configuracion` → pide PIN de nuevo
+- [ ] Salir de config: navegar a `/nuevo` → volver a `/configuracion` → pide PIN de nuevo
+- [ ] Recargar dentro de config → accede directo (cookie sigue vigente mientras no salgas)
+- [ ] `/configuracion/seguridad` → "Registrar huella / Face ID" → browser pide confirmación biométrica → "Dispositivo registrado"
+- [ ] Ir a `/configuracion` → overlay muestra botón "Usar huella / Face ID" + teclado PIN debajo
+- [ ] Usar huella → acceso concedido
+- [ ] Botón 👁 en sidebar (desktop) o header (móvil) → los números muestran `••••`
+- [ ] Recargar la página → el modo privacidad persiste (localStorage)
+- [ ] Long-press 1 seg en 👁 → también activa/desactiva
+- [ ] Botón 👁 nuevamente → vuelven los números reales
+
 **Fase 4 — Dashboard** *(completar al implementar)*
 - [ ] Tabla de ranking ordena por score_total descendente
 - [ ] Filtros de tipo, sector y preferencia funcionan
@@ -819,6 +841,27 @@ Hacer siempre al final de cada fase, en este orden:
 
 ---
 
+## Checklist pre-producción
+
+### Antes del primer deploy a Vercel (hacer una sola vez)
+
+- [ ] **Unificar scripts de Supabase** — los SQL están en 3 archivos separados por fase.
+      Antes de salir a producción, consolidar en un único `supabase/schema.sql` que incluya
+      todo en orden: tablas base, RLS, seeds, alteraciones de Fase 2, tabla WebAuthn.
+      Archivos actuales a unificar:
+      - `supabase/fase1.sql` — tablas base + RLS + seeds
+      - `supabase/sectores_scoring.sql` — tabla sectores + 29 seeds (Fase 3b)
+      - `supabase/fase_seguridad.sql` — columnas en configuracion + webauthn_credentials
+      El `schema.sql` unificado permite levantar un Supabase limpio con un solo comando.
+
+- [ ] Configurar `NEXT_PUBLIC_APP_DOMAIN` en Vercel (dominio real, para WebAuthn RP ID)
+- [ ] Verificar variables de entorno en Vercel dashboard (las 6 de `.env.local`)
+- [ ] Ejecutar `schema.sql` unificado en el Supabase de producción
+- [ ] Registrar huella/Face ID desde el dominio de producción (las credenciales WebAuthn
+      son por dominio — las registradas en localhost NO funcionan en producción)
+
+---
+
 ## Checklist MVP
 
 ### Fase 1 — Base y Auth ✅ COMPLETADA (2026-03-29)
@@ -829,39 +872,43 @@ Hacer siempre al final de cada fase, en este orden:
 - [x] Pantalla de login (email + contraseña)
 - [x] Security headers en `next.config.ts` (CSP, HSTS, X-Frame-Options)
 
-### Fase de Seguridad — implementar tras Fase 2, antes de cargar datos reales
+### Fase de Seguridad — Bloqueo de Configuración + Privacidad ✅ COMPLETADA (2026-03-30)
 
-> Prioridad alta: esta app tiene información financiera personal. Implementar antes de usarla en producción.
+> Implementada antes de Fase 4 — los datos financieros reales ya están en la app.
+> Alcance: bloqueo biométrico/PIN para `/configuracion/*` + modo privacidad.
+> TOTP, inactivity lock y timeout de sesión → Fase de Seguridad Avanzada (post-MVP).
 
-#### 2FA — TOTP (Google Authenticator / Authy)
-- [ ] Habilitar MFA/TOTP en Supabase Auth (desde el dashboard de Supabase)
-- [ ] Flujo post-login: si el usuario tiene 2FA activado, mostrar pantalla de código TOTP
-- [ ] En `/configuracion/seguridad`: botón "Activar autenticación de dos factores"
-      → genera QR para escanear con la app autenticadora → pide código de confirmación → activa
-- [ ] Botón "Desactivar 2FA" con confirmación por contraseña
-- [ ] Componente `TotpChallenge.tsx` — campo de 6 dígitos con auto-submit al completar
-
-#### Timeout de sesión e inactivity lock
-- [ ] En `configuracion` (tabla DB): añadir campos:
-  ```sql
-  session_timeout_minutes  integer default 60,    -- expiración JWT: 15|30|60|240|nunca
-  inactivity_lock_minutes  integer default 15,    -- bloqueo por inactividad: 5|15|30|nunca
-  pin_habilitado           boolean default false,
-  pin_hash                 text,                  -- bcrypt del PIN de 4 dígitos
-  ```
-- [ ] Hook `useInactivityLock` — detecta inactividad (mousemove/keydown/touchstart),
-      tras N minutos muestra pantalla de bloqueo sin cerrar sesión
-- [ ] Pantalla de bloqueo: si `pin_habilitado` → pide PIN de 4 dígitos; si no → pide contraseña
-- [ ] En `/configuracion/seguridad`: slider de timeout + configuración de PIN
-- [ ] PIN de 4 dígitos: se guarda como hash (bcrypt) en `configuracion`, nunca en plano
+#### Bloqueo de configuración (WebAuthn primario + PIN fallback)
+- [x] Nueva tabla `webauthn_credentials` en Supabase (SQL en `supabase/fase_seguridad.sql`)
+- [x] Columnas nuevas en `configuracion`: `pin_hash text`, `pin_habilitado bool`, `webauthn_habilitado bool`
+- [x] `(app)/configuracion/layout.tsx` — Server Component que envuelve `/configuracion/*` con `<ConfigLock>`
+      Lee cookie `config_unlocked` → si válida omite ConfigLock, renderiza directo
+- [x] `ConfigLock.tsx` — overlay con teclado PIN de 6 dígitos + botón "Usar huella / Face ID"
+      Sin PIN ni WebAuthn activos → sin overlay (no bloquea hasta que el usuario configure algo)
+      Tras autenticación exitosa → API setea cookie `config_unlocked` (httpOnly) + setState
+- [x] `/api/webauthn/register-options` + `/api/webauthn/register-verify` — registro biométrico
+- [x] `/api/webauthn/auth-options` + `/api/webauthn/auth-verify` — autenticación biométrica
+- [x] `/api/verificar-pin` — verifica PIN de 6 dígitos con bcryptjs
+- [x] `/api/limpiar-config-lock` — borra cookie al salir de /configuracion/*
+- [x] Re-lock automático al salir de `/configuracion/*`: `useEffect` en `Nav.tsx` detecta cambio de ruta
+      y llama DELETE /api/limpiar-config-lock (fire-and-forget, no bloquea la navegación)
+      Dentro del grupo /configuracion/* la navegación es libre (scoring → sectores → etc.)
+- [x] `/configuracion/seguridad` — activar PIN, registrar huella/Face ID, desactivar métodos
+- [x] Bug fix: `useCallback` en ConfigLock.tsx movido antes de los early returns
+      (violación de Reglas de Hooks — React exige mismo número de hooks en cada render)
+- [x] Dependencias: `@simplewebauthn/browser`, `@simplewebauthn/server`, `bcryptjs`
+- [x] Variable de entorno: `NEXT_PUBLIC_APP_DOMAIN` (WebAuthn RP ID: "localhost" en dev, dominio en prod)
 
 #### Modo privacidad
-- [ ] Botón de ojo 👁 en el header global (siempre visible)
-- [ ] Estado `privacyMode: boolean` en React context (localStorage para persistir entre páginas)
-- [ ] Cuando activo: todos los montos y porcentajes se muestran como `••••` en toda la app
-      (precio_base, cuota_mensual, roi_anual, scores numéricos — nombres de proyectos visibles)
-- [ ] Componente `<MontoPrivado value={x} />` — renderiza el número o `••••` según contexto
-- [ ] Atajo rápido: mantener presionado el botón 1 segundo activa/desactiva (para móvil)
+- [x] `PrivacyContext.tsx` — React Context global con `privacyMode`, persistido en localStorage
+- [x] `AppProviders.tsx` — wrapper Client Component que provee el contexto en `(app)/layout.tsx`
+- [x] Botón 👁 en sidebar (desktop) y header móvil — long-press 1 seg activa/desactiva
+- [x] `MontoPrivado.tsx` — renderiza número formateado o `••••` según `privacyMode`
+
+#### Pendiente para Fase de Seguridad Avanzada (post-MVP)
+- [ ] 2FA TOTP (Google Authenticator) — flujo post-login con Supabase MFA
+- [ ] Inactivity lock — bloqueo por inactividad (hook `useInactivityLock`)
+- [ ] Timeout de sesión configurable (JWT expiration + refresh)
 
 ### Fase 2 — Configuración Global ✅ COMPLETADA (2026-03-29)
 - [x] Pantalla `/configuracion` — sueldo, banco, tasa, años, % proyección + estructura de pago defaults
@@ -1000,6 +1047,9 @@ lib/__tests__/scoring.test.ts
 - [ ] Al ingresar una unidad: lat/lng se obtiene con click derecho en Google Maps → "Copiar coordenadas"
 
 ### Nice-to-have (post-MVP)
+- [ ] **Inactivity timer en /configuracion/*** — Opción C de seguridad: re-lock automático si el usuario lleva
+      más de N minutos sin actividad dentro de la sección de config (complemento de la Opción A ya implementada).
+      Implementar junto con el inactivity lock global de Fase de Seguridad Avanzada.
 - [ ] Historial de cambios de precio por proyecto
 - [ ] Cálculo de distancia a puntos clave (La Carolina, aeropuerto) — usando lat/lng ya almacenado
 - [ ] Exportar comparativa a PDF

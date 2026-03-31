@@ -1,19 +1,18 @@
 // Layout del grupo de rutas protegidas: (app)
 //
-// Este layout es un Server Component (sin 'use client').
-// Server Components pueden hacer fetch de datos, leer cookies y acceder a variables de entorno
-// de servidor directamente — sin APIs extra. Se renderizan solo en el servidor.
+// Server Component — verifica sesión y monta la estructura principal.
 //
-// Aquí verificamos la sesión como segunda línea de defensa:
-// - Primera línea: proxy.ts redirige si no hay sesión (ocurre antes de renderizar)
-// - Segunda línea: este layout verifica la sesión antes de renderizar contenido sensible
+// AppProviders: Client Component wrapper que provee el PrivacyContext global.
+//   El layout es Server Component y no puede contener createContext directamente,
+//   por eso delega en AppProviders que es 'use client'.
 //
-// Si alguien bypasea el proxy (poco probable, pero posible en edge cases),
-// este check garantiza que no se muestre nada sin sesión válida.
+// Nav: sidebar en desktop + bottom bar en móvil.
+// PrivacyButton: botón de ojo 👁 en el header móvil — importado de Nav.tsx.
 
 import { redirect } from 'next/navigation'
 import { createSupabaseServer } from '@/lib/supabase'
-import { logoutAction } from '@/app/(auth)/login/actions'
+import { AppProviders } from '@/components/AppProviders'
+import { Nav, PrivacyButton } from '@/components/Nav'
 
 export default async function AppLayout({
   children,
@@ -23,43 +22,50 @@ export default async function AppLayout({
   const supabase = await createSupabaseServer()
   const { data: { user } } = await supabase.auth.getUser()
 
-  // Segunda línea de defensa: si no hay sesión, redirigir
   if (!user) {
     redirect('/login')
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+    // AppProviders monta el PrivacyContext — disponible en todo (app)
+    <AppProviders>
+      <div className="min-h-screen bg-zinc-950 text-zinc-100 flex">
 
-      {/* Barra de navegación superior */}
-      <header className="border-b border-zinc-800 bg-zinc-900">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-          <span className="font-semibold text-zinc-100 text-sm">
-            Airbnb Quito Ranker
-          </span>
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-zinc-500 hidden sm:block">
-              {user.email}
+        {/* Sidebar (desktop) + Bottom bar (móvil) */}
+        <Nav email={user.email ?? ''} />
+
+        {/* Área de contenido */}
+        <div className="flex-1 md:ml-56 flex flex-col min-h-screen">
+
+          {/* Header móvil: solo visible en pantallas < md */}
+          {/*
+            El botón 👁 (PrivacyButton) está aquí para acceso rápido en móvil.
+            En desktop está en el footer del sidebar.
+          */}
+          <header className="md:hidden flex items-center justify-between
+                             px-4 py-3 border-b border-zinc-800 bg-zinc-900">
+            <span className="font-semibold text-zinc-100 text-sm">
+              Airbnb Quito Ranker
             </span>
-            {/* Botón de logout: llama al Server Action logoutAction */}
-            <form action={logoutAction}>
-              <button
-                type="submit"
-                className="text-xs text-zinc-400 hover:text-zinc-100 transition-colors
-                           border border-zinc-700 rounded px-2 py-1"
-              >
-                Salir
-              </button>
-            </form>
-          </div>
+            <div className="flex items-center gap-3">
+              <PrivacyButton />
+              <span className="text-xs text-zinc-500 truncate max-w-[120px]">
+                {user.email}
+              </span>
+            </div>
+          </header>
+
+          {/* Contenido de la página */}
+          {/*
+            pb-24: espacio inferior en móvil para no quedar tapado por el bottom bar.
+            md:pb-8: en desktop vuelve al padding normal.
+          */}
+          <main className="flex-1 max-w-7xl w-full mx-auto px-4 py-6 pb-24 md:pb-8">
+            {children}
+          </main>
+
         </div>
-      </header>
-
-      {/* Contenido de la página */}
-      <main className="max-w-7xl mx-auto px-4 py-6">
-        {children}
-      </main>
-
-    </div>
+      </div>
+    </AppProviders>
   )
 }
