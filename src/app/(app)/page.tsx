@@ -18,6 +18,7 @@ import RankingDashboard, { type ProyectoRanking } from './RankingDashboard'
 const CAMPOS_SELECT = [
   'id', 'nombre', 'tipo', 'sector', 'estado', 'preferencia',
   'unidades_disponibles', 'permite_airbnb',
+  'latitud', 'longitud',
   'score_total', 'score_roi', 'score_ubicacion', 'score_constructora',
   'score_entrega', 'score_precio_m2', 'score_calidad', 'score_confianza',
   'roi_anual', 'cobertura_con_airbnb', 'precio_base', 'precio_m2',

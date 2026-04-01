@@ -127,14 +127,11 @@ function scoreConfianza(confianza_subjetiva: number | null): number {
 }
 
 // ─── Normalización de ROI ──────────────────────────────────────────────────────
-// score_roi se normaliza entre el mínimo y máximo ROI de todos los proyectos.
-// Si solo hay un proyecto (min == max), el score es 100 por defecto.
-function scoreRoi(roi_anual: number, todos_los_roi: number[]): number {
-  if (todos_los_roi.length === 0) return 50
-  const min = Math.min(...todos_los_roi)
-  const max = Math.max(...todos_los_roi)
-  if (max === min) return 100   // único proyecto en el conjunto
-  return Math.round(((roi_anual - min) / (max - min)) * 100)
+// Escala absoluta: 16% ROI anual = 100 puntos (referencia de excelencia).
+// A diferencia de min-max, esta escala no depende del conjunto de proyectos:
+// un proyecto con ROI del 7% siempre recibe ~44 pts, no 0 por ser el peor del set.
+function scoreRoi(roi_anual: number): number {
+  return Math.min(100, Math.round((roi_anual / 16) * 100))
 }
 
 // score_precio_m2 es inverso: menor precio_m2 = mejor score
@@ -152,8 +149,7 @@ function scorePrecioM2(precio_m2: number, todos_los_precio_m2: number[]): number
 export function calcularScores(
   proyecto: InputScoring,
   pesos: PesosCriterios,
-  // Arrays de valores de todos los proyectos (incluye al proyecto actual) para normalizar
-  todos_los_roi: number[],
+  // Array de precio_m2 de todos los proyectos (incluye al actual) para normalizar score_precio_m2
   todos_los_precio_m2: number[],
   // Mapa nombre_sector → score_base leído de la tabla sectores_scoring en DB
   // Si es undefined (tests legacy), se usa mapa vacío → score_ubicacion depende solo de piso/orientación
@@ -170,7 +166,7 @@ export function calcularScores(
     }
   }
 
-  const score_roi = scoreRoi(proyecto.roi_anual, todos_los_roi)
+  const score_roi = scoreRoi(proyecto.roi_anual)
   const score_ubicacion = scoreUbicacion(proyecto, scores_sectores)
   const score_constructora = scoreConstructora(proyecto)
   const score_entrega = scoreEntrega(proyecto.meses_espera)

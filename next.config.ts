@@ -67,11 +67,12 @@ const nextConfig: NextConfig = {
               "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
               "style-src 'self' 'unsafe-inline'",
               // Supabase Storage para imágenes subidas por el usuario
-              "img-src 'self' data: blob: https://*.supabase.co",
+              // OpenStreetMap tiles para el mapa (Fase 7)
+              "img-src 'self' data: blob: https://*.supabase.co https://*.tile.openstreetmap.org",
               // next/font descarga las fuentes y las sirve desde el propio servidor (/self)
               "font-src 'self'",
-              // Supabase API (HTTPS) + Realtime (WSS)
-              "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
+              // Supabase API (HTTPS) + Realtime (WSS) + OpenStreetMap tiles
+              "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.tile.openstreetmap.org",
               "object-src 'none'",
               "base-uri 'self'",
               "form-action 'self'",

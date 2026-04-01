@@ -310,11 +310,10 @@ export async function guardarEdicion(
   if (!config) return { ok: false, error: 'No se encontró la configuración' }
 
   const metricas = calcularMetricas(buildInputCalculos(campos, config))
-  const todos_roi      = [...existentes.map(p => p.roi_anual ?? 0), metricas.roi_anual]
   const todos_precio_m2 = [...existentes.map(p => p.precio_m2 ?? 0), metricas.precio_m2]
   const scores = calcularScores(
     buildInputScoring(campos, metricas.roi_anual, metricas.precio_m2),
-    pesos, todos_roi, todos_precio_m2, scores_sectores
+    pesos, todos_precio_m2, scores_sectores
   )
 
   const { error } = await supabase
@@ -355,11 +354,10 @@ export async function recalcularUnidad(
   const pActualizado = { ...p, meses_espera: meses_espera_actual }
 
   const metricas = calcularMetricas(buildInputCalculos(pActualizado, config))
-  const todos_roi       = [...existentes.map(e => e.roi_anual ?? 0), metricas.roi_anual]
   const todos_precio_m2 = [...existentes.map(e => e.precio_m2 ?? 0), metricas.precio_m2]
   const scores = calcularScores(
     buildInputScoring(pActualizado, metricas.roi_anual, metricas.precio_m2),
-    pesos, todos_roi, todos_precio_m2, scores_sectores
+    pesos, todos_precio_m2, scores_sectores
   )
 
   const { error } = await supabase

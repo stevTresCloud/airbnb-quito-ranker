@@ -487,7 +487,9 @@ roi_aporte_propio   = (ganancia_neta / aporte_propio_total) * 100
 // lib/scoring.ts — lee pesos dinámicamente de criterios_scoring en DB
 
 // Los scores individuales (0-100) se calculan así:
-score_roi          → normalizado entre el min y max ROI del conjunto de proyectos
+score_roi          → escala absoluta: Math.min(100, round(roi_anual / 16 * 100))
+                     16% ROI = 100 pts. NO usa min-max (eso hacía que el peor siempre fuera 0).
+                     calcularScores() ya NO recibe todos_los_roi — parámetro eliminado.
 score_ubicacion    → score base del sector
                      + bonus piso alto (piso >= 8: +5pts, piso >= 12: +10pts)
                      + bonus orientación (norte/este: +5pts)
@@ -873,12 +875,17 @@ Hacer siempre al final de cada fase, en este orden:
 - [x] Upload de adjuntos sube al bucket Supabase Storage con URL firmada (24h)
 - [x] Hints de ayuda en formulario de edición y en FormularioRapido
 
-**Fase 6 — Comparador** *(completar al implementar)*
-- [ ] Seleccionar 2-3 proyectos y ver tabla lado a lado
+**Fase 6 — Comparador** ✅ COMPLETADA (2026-04-01)
+- [x] Seleccionar 2-3 proyectos y ver tabla lado a lado
+- [x] Tabla lado a lado: Financiero, Airbnb, Unidad, Scoring
+- [x] Ganador resaltado por fila (bg-emerald-900/30)
+- [x] Amenidades con pills + ganador por conteo
+- [x] Aporte pre-entrega calculado (entrada + durante construcción)
+- [x] Botón flotante "Comparar (N)" en ranking — aparece con 2-3 seleccionados
 
-**Fase 7 — Mapa** *(completar al implementar)*
-- [ ] Pins aparecen en el mapa con el color correcto según score
-- [ ] Click en pin abre popup con datos del proyecto
+**Fase 7 — Mapa** ✅ COMPLETADA (2026-04-01)
+- [x] Pins aparecen en el mapa con el color correcto según score
+- [x] Click en pin abre popup con datos del proyecto
 
 ---
 
@@ -886,14 +893,9 @@ Hacer siempre al final de cada fase, en este orden:
 
 ### Antes del primer deploy a Vercel (hacer una sola vez)
 
-- [ ] **Unificar scripts de Supabase** — los SQL están en 3 archivos separados por fase.
-      Antes de salir a producción, consolidar en un único `supabase/schema.sql` que incluya
-      todo en orden: tablas base, RLS, seeds, alteraciones de Fase 2, tabla WebAuthn.
-      Archivos actuales a unificar:
-      - `supabase/fase1.sql` — tablas base + RLS + seeds
-      - `supabase/sectores_scoring.sql` — tabla sectores + 29 seeds (Fase 3b)
-      - `supabase/fase_seguridad.sql` — columnas en configuracion + webauthn_credentials
-      El `schema.sql` unificado permite levantar un Supabase limpio con un solo comando.
+- [x] **Unificar scripts de Supabase** — `supabase/schema_completo.sql` creado (2026-04-01).
+      Incluye todas las fases en orden: tablas, RLS, seeds, WebAuthn, equipamiento, préstamo.
+      Archivos individuales conservados como referencia histórica.
 
 - [ ] Configurar `NEXT_PUBLIC_APP_DOMAIN` en Vercel (dominio real, para WebAuthn RP ID)
 - [ ] Verificar variables de entorno en Vercel dashboard (las 6 de `.env.local`)
@@ -1125,26 +1127,39 @@ lib/__tests__/scoring.test.ts  (6 tests)
       La cuota reduce flujo mensual + cobertura; los intereses reducen ganancia_neta → ROI baja orgánicamente
       UI: checkbox con campos condicionales (tasa/plazo aparecen al activar)
 - [x] 17/17 tests Vitest en verde (11 calculos + 6 scoring)
-- [ ] **PENDIENTE:** Reemplazar normalización min-max de ROI por escala absoluta de mercado
-      `score_roi = min(100, (roi_anual / 16) * 100)` — fix urgente, con pocos proyectos el mínimo
-      siempre recibe 0 aunque su ROI sea sólido (ver LEARNINGS post-Fase 5)
+- [x] **FIX APLICADO en Fase 6:** score_roi cambiado a escala absoluta `Math.min(100, round(roi/16*100))`
+      Parámetro `todos_los_roi` eliminado de `calcularScores()`. 17/17 tests en verde.
 
-### Fase 6 — Comparador
-- [ ] Seleccionar 2-3 proyectos para comparar
-- [ ] Tabla lado a lado con todas las métricas y scores
+### Fase 6 — Comparador ✅ COMPLETADA (2026-04-01)
+- [x] Seleccionar 2-3 proyectos para comparar (checkboxes en ranking, máx 3)
+- [x] Tabla lado a lado con 4 secciones: Financiero / Airbnb / Unidad / Scoring
+- [x] Resaltado del ganador por fila (bg-emerald-900/30)
+- [x] Amenidades como pills + ganador por conteo de amenidades
+- [x] Aporte pre-entrega calculado client-side (monto_entrada + monto_durante_construccion)
+- [x] Fix score_roi: escala absoluta `Math.min(100, round(roi/16*100))` — eliminado min-max
+- [x] RecalcularButton en sidebar y header móvil (useTransition + router.refresh)
+- [x] ThemeButton modo claro/oscuro (inline style en <html> por Tailwind v4 specificity)
 
-### Fase 7 — Mapa de Proyectos
+### Fase 7 — Mapa de Proyectos ✅ COMPLETADA (2026-04-01)
 
 > Post-MVP. No requiere cambios de schema (`latitud` y `longitud` ya existen en `proyectos`).
 > Librería: **React Leaflet + OpenStreetMap** — gratis, sin API key, sin límites.
 > `npm install react-leaflet leaflet @types/leaflet`
 
-- [ ] Componente `MapaProyectos.tsx` — mapa centrado en Quito Norte con pins por unidad
-- [ ] Color del pin según score_total: verde (≥70) / amarillo (50-69) / rojo (<50)
-- [ ] Click en pin → popup con: nombre, tipo, score_total, roi_anual, badge de escasez, botón "Ver detalle"
-- [ ] Toggle **Lista | Mapa** en el dashboard (mismos filtros aplicados a ambas vistas)
-- [ ] Mismos filtros del ranking aplicados al mapa (primera opción, tipo, sector, top N)
-- [ ] Al ingresar una unidad: lat/lng se obtiene con click derecho en Google Maps → "Copiar coordenadas"
+- [x] Componente `MapaProyectos.tsx` — mapa centrado en Quito Norte con pins por unidad
+- [x] Color del pin según score_total: verde (≥70) / amarillo (50-69) / rojo (<50)
+- [x] Click en pin → popup con: nombre, tipo, score_total, roi_anual, badge de escasez, botón "Ver detalle"
+- [x] Toggle **Lista | Mapa** en el dashboard (mismos filtros aplicados a ambas vistas)
+- [x] Mismos filtros del ranking aplicados al mapa (primera opción, tipo, sector, top N)
+- [ ] Al ingresar una unidad: lat/lng se obtiene con click derecho en Google Maps → "Copiar coordenadas" *(instrucción de uso, no código)*
+
+**Notas de implementación:**
+- `dynamic(..., { ssr: false })` es obligatorio — Leaflet usa `window`/`document` que no existen en Node.js
+- `CircleMarker` en lugar de `Marker` para evitar el bug de iconos rotos con Webpack
+- Inline styles dentro del `<Popup>` — Tailwind no garantiza aplicar dentro de portales de Leaflet
+- `MapContainer` necesita `height` explícito vía `style={{ height: 500 }}`
+- CSP en `next.config.ts` debe incluir `*.tile.openstreetmap.org` en `img-src` y `connect-src`
+- Centro del mapa: Parque La Carolina `[-0.183, -78.487]`, zoom 14
 
 ### Nice-to-have (post-MVP)
 - [ ] **Calculadora bidireccional de porcentajes de pago** — en el formulario de edición, al modificar

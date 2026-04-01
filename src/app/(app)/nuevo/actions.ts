@@ -174,7 +174,6 @@ export async function guardarProyecto(
   const pesos: Record<string, number> = {}
   for (const c of criterios ?? []) pesos[c.clave] = c.peso
 
-  const todos_roi = [...(existentes ?? []).map(p => p.roi_anual ?? 0), metricas.roi_anual]
   const todos_precio_m2 = [...(existentes ?? []).map(p => p.precio_m2 ?? 0), metricas.precio_m2]
 
   const inputScoring: InputScoring = {
@@ -205,7 +204,7 @@ export async function guardarProyecto(
     permite_airbnb: true,
   }
 
-  const scores = calcularScores(inputScoring, pesos, todos_roi, todos_precio_m2, scores_sectores)
+  const scores = calcularScores(inputScoring, pesos, todos_precio_m2, scores_sectores)
 
   // ── Insertar en la tabla proyectos ─────────────────────────────────────────
   const { error: errorInsert } = await supabase

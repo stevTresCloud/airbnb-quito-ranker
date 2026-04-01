@@ -1042,8 +1042,365 @@ El campo `perfil` está en `sectores_scoring` y describe la tipología del secto
 (ej: "ejecutivos internacionales", "turistas culturales"). Lo carga el Server
 Component junto a los otros campos del sector.
 
-## Fase 6 — Comparador
-*(se llenará al completar la fase)*
+## Fase 6 — Comparador (2026-04-01)
 
-## Fase 7 — Mapa
-*(se llenará al completar la fase)*
+### 1. `searchParams` es una Promise en Next.js 16
+
+En Next.js 14, `searchParams` en un Server Component era un objeto síncrono:
+
+```ts
+// Next.js 14 (viejo — NO hagas esto)
+export default function Page({ searchParams }: { searchParams: { ids?: string } }) {
+  const ids = searchParams.ids  // síncrono, funcionaba
+}
+```
+
+En Next.js 15+ (y 16), tanto `params` como `searchParams` son `Promise`:
+
+```ts
+// Next.js 16 (correcto)
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ ids?: string }>
+}) {
+  const { ids } = await searchParams  // obligatorio hacer await
+}
+```
+
+Esto es un **breaking change documentado** — el compilador no lo detecta si no
+tienes los tipos bien definidos. Siempre hacer `await searchParams` antes de
+leer sus propiedades.
+
+### 2. `redirect()` de Next.js lanza una excepción especial
+
+`redirect('/')` de `next/navigation` no es un `return` — lanza una excepción
+interna que Next.js captura para hacer la redirección. Por eso **no puede usarse
+dentro de un bloque `try/catch`**: el catch capturaría la excepción y la redirección
+no ocurriría.
+
+```ts
+// MAL — el catch atrapa la "excepción" de redirect y la redirección falla
+try {
+  redirect('/')
+} catch (e) {
+  // aquí llega el control inesperadamente
+}
+
+// BIEN — redirect fuera del try/catch, o antes de él
+if (ids.length < 2) redirect('/')
+
+const { data, error } = await supabase.from(...)
+if (error) redirect('/')
+```
+
+### 3. El cast `as unknown as T[]` para resultados de Supabase
+
+El cliente de Supabase TypeScript infiere el tipo de retorno a partir del string
+que pasas a `.select()`. Cuando ese string es una variable o una constante
+construida dinámicamente, TypeScript no puede inferir las columnas correctas y
+genera un tipo genérico que no solapa con tu interfaz propia.
+
+La solución estándar en este proyecto es hacer el cast via `unknown`:
+
+```ts
+// Sin este cast: error TS2352 "types don't sufficiently overlap"
+const proyectos = data as ProyectoComparar[]       // error
+
+// Con cast via unknown: TypeScript acepta la conversión
+const proyectos = data as unknown as ProyectoComparar[]  // ok
+```
+
+Esto es seguro porque el campo `select()` ya garantiza qué columnas devuelve;
+solo le estamos diciendo a TypeScript que confíe en nosotros.
+
+### 4. Botón flotante `position: fixed` en tablas con `overflow-x-auto`
+
+Si pones un botón dentro de un contenedor con `overflow: hidden` (como la tabla
+con scroll horizontal), el botón queda recortado cuando el usuario hace scroll.
+La solución es sacar el botón **fuera del contenedor** de la tabla y usar `fixed`:
+
+```tsx
+{/* DENTRO del div con overflow-x-auto — INCORRECTO, queda tapado */}
+<div className="overflow-x-auto">
+  <table>...</table>
+  <button className="fixed bottom-6 right-6">Comparar</button>  {/* MAL */}
+</div>
+
+{/* FUERA del contenedor — CORRECTO */}
+<div className="overflow-x-auto">
+  <table>...</table>
+</div>
+{seleccionados.size >= 2 && (
+  <div className="fixed bottom-6 right-6 z-50">  {/* BIEN */}
+    <button>Comparar ({seleccionados.size})</button>
+  </div>
+)}
+```
+
+`z-50` asegura que el botón quede sobre otros elementos (navbar, cards).
+
+### 5. Resaltado del "ganador" por fila — dirección importa
+
+Para resaltar la mejor celda de cada fila hay que saber si "mayor es mejor"
+o "menor es mejor" según la métrica:
+
+| Métrica | Dirección | Motivo |
+|---|---|---|
+| ROI anual, cobertura, flujo, ingreso, ganancia, score | Mayor = mejor | Más rentabilidad es mejor |
+| Precio total, cuota mensual, aporte propio, precio/m² | Menor = mejor | Menor gasto de bolsillo |
+
+La función `idxGanador(valores, mayor)` calcula esto y devuelve -1 si todos
+los valores son iguales (no resaltar en ese caso).
+
+### 6. `onClick` en `<tr>` vs checkbox dentro de la celda
+
+Cuando el `<tr>` tiene un `onClick` para toggle de selección y dentro hay un
+`<input type="checkbox">` también con un handler, se produce doble disparo.
+
+La solución: `e.stopPropagation()` en el `onClick` de la celda que contiene
+el checkbox, para que el click en el checkbox no suba al `<tr>`:
+
+```tsx
+<td onClick={e => e.stopPropagation()}>
+  <input type="checkbox" onChange={() => onToggle(p.id)} ... />
+</td>
+```
+
+Lo mismo aplica al botón "Ver →" dentro de la misma fila.
+
+## Cierre Fase 6 — UX global (2026-04-01)
+
+### 7. Llamar un Server Action desde un Client Component con `useTransition`
+
+Server Actions (`'use server'`) pueden importarse y llamarse directamente desde
+Client Components (`'use client'`). El truco es usar `useTransition` para tener
+estado "pending" sin bloquear la UI, y `router.refresh()` para que el Server
+Component recargue los datos tras completar:
+
+```tsx
+// Client Component
+import { recalcularRanking } from '@/app/(app)/configuracion/actions'
+import { useTransition } from 'react'
+import { useRouter } from 'next/navigation'
+
+const [isPending, startTransition] = useTransition()
+const router = useRouter()
+
+function handleClick() {
+  startTransition(async () => {
+    const res = await recalcularRanking(null, new FormData())
+    if (res?.ok) router.refresh()  // invalida caché del Server Component
+  })
+}
+```
+
+`useTransition` marca `isPending=true` durante el async — útil para spinners/disabled.
+`router.refresh()` re-fetcha los datos del Server Component sin recargar la página.
+
+### 8. Modo claro con CSS filter (sin tocar componentes)
+
+Para implementar light mode en una app 100% dark sin modificar todos los componentes:
+
+```css
+/* globals.css */
+html.light {
+  filter: invert(1) hue-rotate(180deg);
+}
+/* Re-invertir imágenes para que no queden con colores extraños */
+html.light img, html.light video {
+  filter: invert(1) hue-rotate(180deg);
+}
+```
+
+`invert(1)` convierte negro→blanco y viceversa. `hue-rotate(180deg)` corrige
+el desplazamiento de color que produce el invert (ej: azul no queda naranja).
+El resultado es una paleta clara que mantiene la legibilidad.
+
+Toggle desde un Client Component:
+```tsx
+document.documentElement.classList.add('light')    // activar
+document.documentElement.classList.remove('light') // desactivar
+localStorage.setItem('theme', 'light')             // persistir
+```
+
+Para leer la preferencia al montar (antes de primer render no se puede — estamos
+en SSR y `localStorage` no existe en el servidor):
+```tsx
+useEffect(() => {
+  if (localStorage.getItem('theme') === 'light') {
+    document.documentElement.classList.add('light')
+  }
+}, [])  // [] = solo al montar en el cliente
+```
+
+### 9. Tailwind v4 y especificidad CSS — usar inline style para garantizar aplicación
+
+**Síntoma:** El botón de modo claro no tenía efecto aunque la clase `light` se añadía
+correctamente a `<html>`. El CSS `html.light { filter: ... }` en `globals.css` existía
+pero el browser no lo aplicaba.
+
+**Causa probable:** Tailwind v4 (que usa `@import "tailwindcss"`) puede procesar el CSS
+de manera que las reglas en `globals.css` no sobrescriben las reglas `filter` que pueda
+tener el elemento raíz, o la especificidad queda por debajo de algún reset.
+
+**Fix:** Aplicar el filtro directamente como `style` inline via JS — los inline styles
+tienen la mayor especificidad posible (superan cualquier regla CSS):
+
+```ts
+function applyLightMode(on: boolean) {
+  if (on) {
+    document.documentElement.style.setProperty('filter', 'invert(1) hue-rotate(180deg)')
+    document.documentElement.classList.add('light')    // para re-invertir imágenes via CSS
+  } else {
+    document.documentElement.style.removeProperty('filter')
+    document.documentElement.classList.remove('light')
+  }
+}
+```
+
+La clase `light` sigue añadiéndose porque la re-inversión de imágenes
+(`html.light img { filter: invert(1) hue-rotate(180deg) }`) sí funciona via CSS —
+solo el `filter` del elemento raíz necesita el enfoque inline.
+
+**Regla:** cuando un CSS aplicado a `<html>` no surte efecto en Tailwind v4,
+usar `element.style.setProperty()` como alternativa segura.
+
+## Fase 7 — Mapa de Proyectos (2026-04-01)
+
+### Leaflet no puede ejecutarse en el servidor (SSR)
+
+Leaflet accede a `window` y `document` al importarse. En Next.js, los Server
+Components y el pre-render de Client Components ocurren en Node.js, donde esas
+APIs no existen. Si importas Leaflet directamente, el build falla con
+`window is not defined`.
+
+**Solución:** `dynamic()` con `ssr: false` — Next.js omite ese módulo durante
+el render de servidor y solo lo carga en el browser:
+
+```ts
+// En el Client Component que necesita el mapa
+const MapaProyectos = dynamic(() => import('@/components/MapaProyectos'), {
+  ssr: false,
+  loading: () => <div>Cargando mapa...</div>,
+})
+```
+
+El componente `MapaProyectos.tsx` en sí mismo sigue siendo un Client Component
+(`'use client'`) — `dynamic` solo controla *cuándo* se carga.
+
+### CircleMarker en lugar de Marker (el bug clásico de Leaflet + Webpack)
+
+El `Marker` por defecto de Leaflet usa archivos `.png` para los iconos
+(`marker-icon.png`, `marker-shadow.png`). Webpack no puede resolver esas URLs
+automáticamente y los pines aparecen como íconos rotos.
+
+**Fix más simple:** usar `CircleMarker` en su lugar. Es un SVG puro generado
+por Leaflet — sin archivos externos. Además permite controlar el color con
+`pathOptions`, que es exactamente lo que necesitamos para el semáforo de score:
+
+```tsx
+<CircleMarker
+  center={[lat, lng]}
+  radius={11}
+  pathOptions={{ color, fillColor: color, fillOpacity: 0.85, weight: 2 }}
+>
+  <Popup>...</Popup>
+</CircleMarker>
+```
+
+### Tailwind no aplica bien dentro de popups de Leaflet
+
+Los popups de Leaflet se insertan en un portal DOM separado. Las clases de
+Tailwind pueden no funcionar correctamente ahí porque el CSS global sí se
+aplica, pero en la práctica los estilos de `@layer utilities` a veces no llegan.
+
+**Solución pragmática:** usar `style={{}}` inline para los elementos dentro del
+popup. Así el estilo viaja con el componente, independiente de dónde Leaflet
+lo monte en el DOM.
+
+### El CSS de Leaflet debe importarse en el componente
+
+```ts
+import 'leaflet/dist/leaflet.css'
+```
+
+Esto va al principio del componente cargado dinámicamente (`MapaProyectos.tsx`).
+Next.js lo procesa y lo incluye en el bundle del cliente.
+
+### MapContainer necesita `height` explícito
+
+Leaflet necesita que el contenedor tenga altura definida para renderizar el
+mapa. Tailwind `h-[500px]` funciona, pero `style={{ height: 500 }}` es más
+seguro para garantizar que el valor llegue antes de que Leaflet calcule el
+tamaño del mapa:
+
+```tsx
+<MapContainer style={{ height: 500, borderRadius: 12 }} ...>
+```
+
+### Bug: tiles de OpenStreetMap bloqueados por la CSP
+
+Los tiles del mapa (imágenes del callejero) se pedían a `*.tile.openstreetmap.org`
+pero la CSP de Fase 1 solo tenía en lista blanca `*.supabase.co`. El browser
+bloqueaba silenciosamente las peticiones y el mapa aparecía gris.
+
+**Fix en `next.config.ts`:**
+```ts
+// img-src: añadir el dominio de tiles
+"img-src 'self' data: blob: https://*.supabase.co https://*.tile.openstreetmap.org",
+// connect-src: ídem para las peticiones HTTP fetch de los tiles
+"connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.tile.openstreetmap.org",
+```
+
+**Regla:** al agregar cualquier recurso externo (fuente, imagen, API), buscar primero
+en `next.config.ts` si la CSP lo bloquearía. Los fallos de CSP no lanzan errores
+en consola evidentes — solo "net::ERR_BLOCKED_BY_CSP" en la pestaña Network.
+
+### Coordenadas del centro del mapa
+
+El centro inicial `[-0.12, -78.48]` apuntaba demasiado al norte (sector Cotocollao),
+dejando los pins fuera del encuadre inicial. El centro correcto para la zona de
+mayor concentración de proyectos es **Parque La Carolina**:
+
+```ts
+const center: [number, number] = [-0.183, -78.487]  // Parque La Carolina
+```
+
+zoom 14 (nivel barrio) en lugar de 13.
+
+**Regla:** verificar visualmente el mapa al arrancar — los pins deben aparecer
+sin necesidad de desplazar el mapa.
+
+### Archivos modificados / creados
+
+- `src/components/MapaProyectos.tsx` — componente mapa (nuevo); centro → La Carolina, zoom 14
+- `src/app/(app)/RankingDashboard.tsx` — dynamic import + estado `vista` + toggle Lista|Mapa
+- `src/app/(app)/page.tsx` — `latitud`, `longitud` añadidos a CAMPOS_SELECT
+- `next.config.ts` — CSP ampliada con `*.tile.openstreetmap.org` en img-src y connect-src
+- `package.json` — `react-leaflet`, `leaflet`, `@types/leaflet`
+
+---
+
+## Cierre MVP — Limpieza y consolidación (2026-04-01)
+
+### Schema SQL consolidado
+
+Todos los SQL de todas las fases se unificaron en `supabase/schema_completo.sql`.
+El archivo está ordenado para ejecutarse de cero en un Supabase limpio:
+
+1. `configuracion` (incluye columnas de seguridad)
+2. `criterios_scoring` + seed 8 criterios definitivos
+3. `proyectos` (incluye campos de Fase 5: préstamo amoblado, score_equipamiento)
+4. `adjuntos` + Storage bucket
+5. `sectores_scoring` + 29 sectores
+6. `webauthn_credentials`
+
+Los archivos individuales (`fase1.sql`, `fase_seguridad.sql`, etc.) se conservan
+como historial de qué cambió en cada fase.
+
+### Archivos basura eliminados
+
+En el commit de Fase 6 quedaron archivos con nombres que eran fragmentos de texto
+(probablemente del prompt de esa sesión). Se eliminaron 8 archivos de la raíz.
+**Causa probable:** output de un comando copiado como nombre de archivo en el shell.

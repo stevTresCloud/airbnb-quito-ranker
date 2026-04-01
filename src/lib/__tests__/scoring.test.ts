@@ -52,15 +52,15 @@ const BASE: InputScoring = {
 
 describe('scoring.ts', () => {
   it('permite_airbnb=false → score_total = 0 (regla absoluta)', () => {
-    const r = calcularScores({ ...BASE, permite_airbnb: false }, PESOS, [8], [2000], SCORES_SECTORES)
+    const r = calcularScores({ ...BASE, permite_airbnb: false }, PESOS, [2000], SCORES_SECTORES)
     expect(r.score_total).toBe(0)
     expect(r.score_roi).toBe(0)
     expect(r.score_ubicacion).toBe(0)
   })
 
   it('score_total = suma ponderada correcta con pesos de ejemplo (8 criterios)', () => {
-    // Proyecto único → score_roi = 100 (único proyecto, max normalizado)
-    const r = calcularScores(BASE, PESOS, [8], [2000], SCORES_SECTORES)
+    // roi_anual=8 → score_roi = round(8/16*100) = 50 (escala absoluta)
+    const r = calcularScores(BASE, PESOS, [2000], SCORES_SECTORES)
     const esperado = Math.round(
       r.score_roi          * PESOS.roi +
       r.score_ubicacion    * PESOS.ubicacion +
@@ -77,25 +77,25 @@ describe('scoring.ts', () => {
   it('score_equipamiento: ninguno=0, solo parqueadero=50, solo bodega=30, ambos=100', () => {
     const ninguno = calcularScores(
       { ...BASE, tiene_parqueadero: false, tiene_bodega: false },
-      PESOS, [8], [2000], SCORES_SECTORES
+      PESOS, [2000], SCORES_SECTORES
     )
     expect(ninguno.score_equipamiento).toBe(0)
 
     const soloPark = calcularScores(
       { ...BASE, tiene_parqueadero: true, tiene_bodega: false },
-      PESOS, [8], [2000], SCORES_SECTORES
+      PESOS, [2000], SCORES_SECTORES
     )
     expect(soloPark.score_equipamiento).toBe(50)
 
     const soloBodega = calcularScores(
       { ...BASE, tiene_parqueadero: false, tiene_bodega: true },
-      PESOS, [8], [2000], SCORES_SECTORES
+      PESOS, [2000], SCORES_SECTORES
     )
     expect(soloBodega.score_equipamiento).toBe(30)
 
     const ambos = calcularScores(
       { ...BASE, tiene_parqueadero: true, tiene_bodega: true },
-      PESOS, [8], [2000], SCORES_SECTORES
+      PESOS, [2000], SCORES_SECTORES
     )
     expect(ambos.score_equipamiento).toBe(100)
   })
@@ -103,34 +103,34 @@ describe('scoring.ts', () => {
   it('score_constructora: reputada=80 base, con_retrasos=20 base', () => {
     const reputada = calcularScores(
       { ...BASE, fiabilidad_constructora: 'reputada', anos_constructora: null, proyectos_entregados: null },
-      PESOS, [8], [2000], SCORES_SECTORES
+      PESOS, [2000], SCORES_SECTORES
     )
     expect(reputada.score_constructora).toBe(80)
 
     const conRetrasos = calcularScores(
       { ...BASE, fiabilidad_constructora: 'conocida_con_retrasos', anos_constructora: null, proyectos_entregados: null },
-      PESOS, [8], [2000], SCORES_SECTORES
+      PESOS, [2000], SCORES_SECTORES
     )
     expect(conRetrasos.score_constructora).toBe(20)
   })
 
   it('score_entrega: 0 meses=100, 48+ meses=0', () => {
-    const entregado = calcularScores({ ...BASE, meses_espera: 0 }, PESOS, [8], [2000], SCORES_SECTORES)
+    const entregado = calcularScores({ ...BASE, meses_espera: 0 }, PESOS, [2000], SCORES_SECTORES)
     expect(entregado.score_entrega).toBe(100)
 
-    const lejano = calcularScores({ ...BASE, meses_espera: 48 }, PESOS, [8], [2000], SCORES_SECTORES)
+    const lejano = calcularScores({ ...BASE, meses_espera: 48 }, PESOS, [2000], SCORES_SECTORES)
     expect(lejano.score_entrega).toBe(0)
 
-    const mucho = calcularScores({ ...BASE, meses_espera: 60 }, PESOS, [8], [2000], SCORES_SECTORES)
+    const mucho = calcularScores({ ...BASE, meses_espera: 60 }, PESOS, [2000], SCORES_SECTORES)
     expect(mucho.score_entrega).toBe(0)
   })
 
   it('score_confianza: confianza_subjetiva × 20', () => {
     for (const nivel of [1, 2, 3, 4, 5] as const) {
-      const r = calcularScores({ ...BASE, confianza_subjetiva: nivel }, PESOS, [8], [2000], SCORES_SECTORES)
+      const r = calcularScores({ ...BASE, confianza_subjetiva: nivel }, PESOS, [2000], SCORES_SECTORES)
       expect(r.score_confianza).toBe(nivel * 20)
     }
-    const sinDato = calcularScores({ ...BASE, confianza_subjetiva: null }, PESOS, [8], [2000], SCORES_SECTORES)
+    const sinDato = calcularScores({ ...BASE, confianza_subjetiva: null }, PESOS, [2000], SCORES_SECTORES)
     expect(sinDato.score_confianza).toBe(0)
   })
 })

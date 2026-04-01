@@ -12,7 +12,7 @@
 import { redirect } from 'next/navigation'
 import { createSupabaseServer } from '@/lib/supabase'
 import { AppProviders } from '@/components/AppProviders'
-import { Nav, PrivacyButton } from '@/components/Nav'
+import { Nav, PrivacyButton, RecalcularButton, ThemeButton } from '@/components/Nav'
 
 export default async function AppLayout({
   children,
@@ -48,8 +48,10 @@ export default async function AppLayout({
               Airbnb Quito Ranker
             </span>
             <div className="flex items-center gap-3">
+              <RecalcularButton />
               <PrivacyButton />
-              <span className="text-xs text-zinc-500 truncate max-w-[120px]">
+              <ThemeButton />
+              <span className="text-xs text-zinc-500 truncate max-w-[100px]">
                 {user.email}
               </span>
             </div>

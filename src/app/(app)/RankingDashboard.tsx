@@ -2,16 +2,32 @@
 // RankingDashboard.tsx — Dashboard completo de ranking con filtros
 //
 // Por qué es Client Component ('use client'):
-//   Necesita useState para los filtros interactivos (toggles, selects).
+//   Necesita useState para los filtros interactivos (toggles, selects) y la
+//   selección de proyectos para el comparador.
 //   Recibe todos los datos ya hidratados desde el Server Component (page.tsx)
 //   y filtra/ordena en el cliente — sin peticiones adicionales al servidor.
 //   Para una app personal con ~20 proyectos, esto es más simple y rápido.
 
 import { useState, useMemo } from 'react'
+import dynamic from 'next/dynamic'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { ScoreBar } from '@/components/ScoreBar'
 import { SemaforoROI } from '@/components/SemaforoROI'
 import { MontoPrivado } from '@/components/MontoPrivado'
+
+// Leaflet requiere window/document — solo puede ejecutarse en el browser (no SSR).
+// dynamic + ssr:false hace que Next.js omita este módulo durante el render de servidor.
+const MapaProyectos = dynamic(() => import('@/components/MapaProyectos'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center rounded-xl border border-zinc-800
+                    bg-zinc-900/60 text-zinc-500 text-sm"
+         style={{ height: 500 }}>
+      Cargando mapa...
+    </div>
+  ),
+})
 
 // ─── Tipo de fila de la tabla ─────────────────────────────────────────────────
 // Subconjunto de la tabla `proyectos` que necesita el dashboard.
@@ -26,6 +42,8 @@ export type ProyectoRanking = {
   preferencia: string | null
   unidades_disponibles: number | null
   permite_airbnb: boolean
+  latitud: number | null
+  longitud: number | null
 
   // Scores (null si el proyecto aún no fue recalculado)
   score_total: number | null
@@ -302,7 +320,13 @@ function BarraFiltros({
 
 // ─── Tabla de ranking ─────────────────────────────────────────────────────────
 
-function TablaRanking({ proyectos }: { proyectos: ProyectoRanking[] }) {
+interface TablaRankingProps {
+  proyectos: ProyectoRanking[]
+  seleccionados: Set<string>
+  onToggle: (id: string) => void
+}
+
+function TablaRanking({ proyectos, seleccionados, onToggle }: TablaRankingProps) {
   if (proyectos.length === 0) {
     return (
       <div className="text-center py-16 text-zinc-600">
@@ -315,12 +339,16 @@ function TablaRanking({ proyectos }: { proyectos: ProyectoRanking[] }) {
     )
   }
 
+  const maxSeleccion = seleccionados.size >= 3
+
   return (
     // Tabla con scroll horizontal en móvil (overflow-x-auto)
     <div className="overflow-x-auto rounded-xl border border-zinc-800">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-zinc-800 bg-zinc-900/60">
+            {/* Columna checkbox */}
+            <th className="px-3 py-3 w-8" />
             <th className="text-left px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wide w-6">
               #
             </th>
@@ -350,7 +378,14 @@ function TablaRanking({ proyectos }: { proyectos: ProyectoRanking[] }) {
         </thead>
         <tbody className="divide-y divide-zinc-800/60">
           {proyectos.map((p, idx) => (
-            <FilaRanking key={p.id} proyecto={p} posicion={idx + 1} />
+            <FilaRanking
+              key={p.id}
+              proyecto={p}
+              posicion={idx + 1}
+              seleccionado={seleccionados.has(p.id)}
+              deshabilitado={maxSeleccion && !seleccionados.has(p.id)}
+              onToggle={onToggle}
+            />
           ))}
         </tbody>
       </table>
@@ -360,13 +395,39 @@ function TablaRanking({ proyectos }: { proyectos: ProyectoRanking[] }) {
 
 // ─── Fila individual ──────────────────────────────────────────────────────────
 
-function FilaRanking({ proyecto: p, posicion }: { proyecto: ProyectoRanking; posicion: number }) {
+interface FilaRankingProps {
+  proyecto: ProyectoRanking
+  posicion: number
+  seleccionado: boolean
+  deshabilitado: boolean
+  onToggle: (id: string) => void
+}
+
+function FilaRanking({ proyecto: p, posicion, seleccionado, deshabilitado, onToggle }: FilaRankingProps) {
   const descartado = p.estado === 'descartado'
 
   return (
-    <tr className={`group transition-colors hover:bg-zinc-800/40 ${
-      descartado ? 'opacity-50' : ''
-    }`}>
+    <tr
+      onClick={() => !deshabilitado && onToggle(p.id)}
+      className={`group transition-colors hover:bg-zinc-800/40 cursor-pointer ${
+        descartado ? 'opacity-50' : ''
+      } ${seleccionado ? 'bg-blue-900/20' : ''}`}
+    >
+
+      {/* Checkbox de selección para comparar */}
+      <td
+        className="px-3 py-3 align-middle"
+        onClick={e => e.stopPropagation()}  // evita doble disparo con el onClick del tr
+      >
+        <input
+          type="checkbox"
+          checked={seleccionado}
+          disabled={deshabilitado}
+          onChange={() => onToggle(p.id)}
+          className={`w-3.5 h-3.5 rounded border accent-blue-500 cursor-pointer
+                      ${deshabilitado ? 'opacity-30 cursor-not-allowed' : ''}`}
+        />
+      </td>
 
       {/* Posición */}
       <td className="px-4 py-3 text-xs text-zinc-600 font-mono">{posicion}</td>
@@ -440,8 +501,8 @@ function FilaRanking({ proyecto: p, posicion }: { proyecto: ProyectoRanking; pos
         <span className="text-xs text-zinc-500">{p.sector}</span>
       </td>
 
-      {/* Botón ver detalle */}
-      <td className="px-4 py-3 text-right">
+      {/* Botón ver detalle — stopPropagation para que no active el toggle */}
+      <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
         <Link
           href={`/proyecto/${p.id}`}
           className="text-xs text-zinc-500 hover:text-zinc-200 transition-colors
@@ -458,6 +519,27 @@ function FilaRanking({ proyecto: p, posicion }: { proyecto: ProyectoRanking; pos
 
 export default function RankingDashboard({ proyectos }: Props) {
   const [filtros, setFiltros] = useState<FiltrosActivos>(FILTROS_INICIAL)
+  const [vista, setVista] = useState<'lista' | 'mapa'>('lista')
+  // Set de ids seleccionados para comparar (máx 3)
+  const [seleccionados, setSeleccionados] = useState<Set<string>>(new Set())
+  const router = useRouter()
+
+  function toggleSeleccion(id: string) {
+    setSeleccionados(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else if (next.size < 3) {
+        next.add(id)
+      }
+      return next
+    })
+  }
+
+  function irAComparar() {
+    const ids = Array.from(seleccionados).join(',')
+    router.push(`/comparar?ids=${ids}`)
+  }
 
   // Listas únicas para los selects de tipo y sector
   const tiposDisponibles = useMemo(() => {
@@ -533,7 +615,7 @@ export default function RankingDashboard({ proyectos }: Props) {
 
   return (
     <div>
-      {/* Título + botón nuevo */}
+      {/* Título + toggle Lista|Mapa + botón nuevo */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-semibold text-zinc-100">Ranking</h1>
@@ -542,15 +624,44 @@ export default function RankingDashboard({ proyectos }: Props) {
             {filtros.estado !== 'todos' ? ` · ${filtros.estado}` : ''}
           </p>
         </div>
-        <Link
-          href="/nuevo"
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm
-                     bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition-colors
-                     border border-zinc-700"
-        >
-          <span className="text-base leading-none">+</span>
-          <span>Nueva</span>
-        </Link>
+
+        <div className="flex items-center gap-2">
+          {/* Toggle Lista | Mapa — solo visible cuando hay proyectos */}
+          {proyectos.length > 0 && (
+            <div className="flex rounded-lg border border-zinc-700 overflow-hidden text-xs">
+              <button
+                onClick={() => setVista('lista')}
+                className={`px-3 py-1.5 transition-colors ${
+                  vista === 'lista'
+                    ? 'bg-zinc-700 text-zinc-100'
+                    : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                ☰ Lista
+              </button>
+              <button
+                onClick={() => setVista('mapa')}
+                className={`px-3 py-1.5 transition-colors ${
+                  vista === 'mapa'
+                    ? 'bg-zinc-700 text-zinc-100'
+                    : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                ⊙ Mapa
+              </button>
+            </div>
+          )}
+
+          <Link
+            href="/nuevo"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm
+                       bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition-colors
+                       border border-zinc-700"
+          >
+            <span className="text-base leading-none">+</span>
+            <span>Nueva</span>
+          </Link>
+        </div>
       </div>
 
       {/* Panel resumen — solo si hay proyectos */}
@@ -558,7 +669,7 @@ export default function RankingDashboard({ proyectos }: Props) {
         <PanelResumen proyectos={proyectos} />
       )}
 
-      {/* Barra de filtros */}
+      {/* Barra de filtros — aplica tanto a lista como a mapa */}
       {proyectos.length > 0 && (
         <BarraFiltros
           filtros={filtros}
@@ -568,8 +679,32 @@ export default function RankingDashboard({ proyectos }: Props) {
         />
       )}
 
-      {/* Tabla */}
-      <TablaRanking proyectos={filasFiltradas} />
+      {/* Vista: Lista o Mapa */}
+      {vista === 'lista' ? (
+        <TablaRanking
+          proyectos={filasFiltradas}
+          seleccionados={seleccionados}
+          onToggle={toggleSeleccion}
+        />
+      ) : (
+        <MapaProyectos proyectos={filasFiltradas} />
+      )}
+
+      {/* Botón flotante "Comparar (N)" — visible solo con 2 o 3 seleccionados */}
+      {/* fixed: se posiciona relativo al viewport, no al scroll — queda siempre visible */}
+      {seleccionados.size >= 2 && (
+        <div className="fixed bottom-6 right-6 z-50">
+          <button
+            onClick={irAComparar}
+            className="flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-medium
+                       bg-blue-600 hover:bg-blue-500 text-white shadow-xl shadow-blue-900/40
+                       transition-all active:scale-95"
+          >
+            <span>⇄</span>
+            <span>Comparar ({seleccionados.size})</span>
+          </button>
+        </div>
+      )}
     </div>
   )
 }

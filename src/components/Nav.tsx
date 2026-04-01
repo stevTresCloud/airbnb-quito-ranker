@@ -4,15 +4,24 @@
 //  • Sidebar fijo en desktop (md:flex) — siempre visible a la izquierda
 //  • Bottom tab bar en móvil (md:hidden) — fijo en la parte inferior
 //
-// También incluye el botón de privacidad (👁) que oculta/muestra montos.
-// Long-press de 1 segundo alterna el modo — útil en móvil sin hover.
+// También incluye:
+//  • PrivacyButton (👁)  — oculta/muestra montos. Exportado para el header móvil.
+//  • RecalcularButton    — recalcula todo el ranking. Exportado para el header móvil.
+//  • ThemeButton         — alterna modo claro/oscuro. Exportado para el header móvil.
+//
+// Modo claro/oscuro:
+//   Técnica: añade/quita la clase `light` en <html>.
+//   globals.css aplica `filter: invert(1) hue-rotate(180deg)` → convierte el dark
+//   theme en light sin tocar ningún componente. Las imágenes se re-invierten.
+//   La preferencia se persiste en localStorage.
 
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
-import { useRef, useEffect } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
+import { useRef, useEffect, useState, useTransition } from 'react'
 import { logoutAction } from '@/app/(auth)/login/actions'
+import { recalcularRanking } from '@/app/(app)/configuracion/actions'
 import { usePrivacy } from '@/contexts/PrivacyContext'
 
 // ─── Íconos SVG inline ───────────────────────────────────────────────────────
@@ -69,7 +78,6 @@ function IconLogout() {
 
 function IconEye({ closed }: { closed: boolean }) {
   return closed ? (
-    // Ojo cerrado (privacidad activa)
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1
@@ -78,11 +86,48 @@ function IconEye({ closed }: { closed: boolean }) {
       <line x1="1" y1="1" x2="23" y2="23" />
     </svg>
   ) : (
-    // Ojo abierto (normal)
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
       <circle cx="12" cy="12" r="3" />
+    </svg>
+  )
+}
+
+function IconRefresh({ spinning }: { spinning: boolean }) {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+      className={spinning ? 'animate-spin' : ''}>
+      <polyline points="23 4 23 10 17 10" />
+      <polyline points="1 20 1 14 7 14" />
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+    </svg>
+  )
+}
+
+function IconSun() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="5" />
+      <line x1="12" y1="1"  x2="12" y2="3" />
+      <line x1="12" y1="21" x2="12" y2="23" />
+      <line x1="4.22" y1="4.22"  x2="5.64" y2="5.64" />
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+      <line x1="1" y1="12" x2="3"  y2="12" />
+      <line x1="21" y1="12" x2="23" y2="12" />
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+    </svg>
+  )
+}
+
+function IconMoon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
     </svg>
   )
 }
@@ -97,8 +142,6 @@ const CONFIG_ITEMS = [
 ]
 
 // ─── Hook para long-press (1 segundo) ────────────────────────────────────────
-// Devuelve los event handlers a añadir al botón.
-// En desktop: un click normal también alterna. En móvil: long-press o click.
 
 function useLongPress(onLongPress: () => void, onClick: () => void, ms = 1000) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -130,12 +173,10 @@ function useLongPress(onLongPress: () => void, onClick: () => void, ms = 1000) {
   }
 }
 
-// ─── Botón de privacidad (reutilizable en sidebar y header móvil) ─────────────
+// ─── Botón de privacidad ──────────────────────────────────────────────────────
 
 function PrivacyButton({ className }: { className?: string }) {
   const { privacyMode, togglePrivacy } = usePrivacy()
-
-  // Tanto click normal como long-press activan/desactivan
   const handlers = useLongPress(togglePrivacy, togglePrivacy)
 
   return (
@@ -153,8 +194,101 @@ function PrivacyButton({ className }: { className?: string }) {
   )
 }
 
-// Exportamos para usar en el header móvil del layout
 export { PrivacyButton }
+
+// ─── Botón Recalcular ranking ─────────────────────────────────────────────────
+// Llama al Server Action recalcularRanking directamente desde el cliente.
+// useTransition marca el estado "pending" mientras el servidor procesa.
+// router.refresh() actualiza los datos del Server Component tras completar.
+
+function RecalcularButton({ className }: { className?: string }) {
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+  const [resultado, setResultado] = useState<'ok' | 'error' | null>(null)
+
+  function handleClick() {
+    setResultado(null)
+    startTransition(async () => {
+      const res = await recalcularRanking(null, new FormData())
+      setResultado(res?.ok ? 'ok' : 'error')
+      if (res?.ok) router.refresh()
+      // Limpiar feedback visual tras 3 segundos
+      setTimeout(() => setResultado(null), 3000)
+    })
+  }
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={isPending}
+      title="Recalcular todo el ranking"
+      className={`flex items-center gap-1.5 transition-colors select-none
+                  disabled:opacity-50 disabled:cursor-not-allowed ${
+        resultado === 'ok'    ? 'text-emerald-400' :
+        resultado === 'error' ? 'text-red-400'     :
+        'text-zinc-500 hover:text-zinc-300'
+      } ${className ?? ''}`}
+    >
+      <IconRefresh spinning={isPending} />
+      {resultado === 'ok' && <span className="text-[10px]">✓</span>}
+    </button>
+  )
+}
+
+export { RecalcularButton }
+
+// ─── Botón de tema claro/oscuro ───────────────────────────────────────────────
+// Técnica CSS filter: añade/quita la clase `light` en <html>.
+// globals.css define: html.light { filter: invert(1) hue-rotate(180deg) }
+// Esto convierte el dark theme en light sin tocar ningún componente.
+// La preferencia se persiste en localStorage clave 'theme'.
+
+// Aplica el filtro vía style inline (máxima especificidad) + clase para re-invertir imágenes
+function applyLightMode(on: boolean) {
+  if (on) {
+    document.documentElement.style.setProperty('filter', 'invert(1) hue-rotate(180deg)')
+    document.documentElement.classList.add('light')
+  } else {
+    document.documentElement.style.removeProperty('filter')
+    document.documentElement.classList.remove('light')
+  }
+}
+
+function ThemeButton({ className }: { className?: string }) {
+  const [isLight, setIsLight] = useState(false)
+
+  // Al montar, leer preferencia guardada y aplicarla
+  useEffect(() => {
+    const saved = localStorage.getItem('theme')
+    if (saved === 'light') {
+      applyLightMode(true)
+      setIsLight(true)
+    }
+  }, [])
+
+  function toggle() {
+    const next = !isLight
+    setIsLight(next)
+    applyLightMode(next)
+    localStorage.setItem('theme', next ? 'light' : 'dark')
+  }
+
+  return (
+    <button
+      onClick={toggle}
+      title={isLight ? 'Cambiar a modo oscuro' : 'Cambiar a modo claro'}
+      className={`transition-colors select-none ${
+        isLight
+          ? 'text-amber-400 hover:text-amber-300'
+          : 'text-zinc-500 hover:text-zinc-300'
+      } ${className ?? ''}`}
+    >
+      {isLight ? <IconSun /> : <IconMoon />}
+    </button>
+  )
+}
+
+export { ThemeButton }
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
@@ -162,17 +296,12 @@ export function Nav({ email }: { email: string }) {
   const pathname = usePathname()
   const prevPathname = useRef(pathname)
 
-  // Re-lock: cuando el usuario sale de /configuracion/* hacia otra sección,
-  // borrar la cookie de desbloqueo para que la próxima visita pida PIN/biométrico.
-  // El fetch es fire-and-forget — no bloqueamos la navegación.
   useEffect(() => {
     const wasInConfig = prevPathname.current.startsWith('/configuracion')
     const isInConfig  = pathname.startsWith('/configuracion')
-
     if (wasInConfig && !isInConfig) {
       fetch('/api/limpiar-config-lock', { method: 'DELETE' })
     }
-
     prevPathname.current = pathname
   }, [pathname])
 
@@ -197,7 +326,6 @@ export function Nav({ email }: { email: string }) {
         {/* Links principales */}
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
 
-          {/* Ranking */}
           <Link
             href="/"
             className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
@@ -210,7 +338,6 @@ export function Nav({ email }: { email: string }) {
             Ranking
           </Link>
 
-          {/* Nueva unidad */}
           <Link
             href="/nuevo"
             className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
@@ -223,7 +350,6 @@ export function Nav({ email }: { email: string }) {
             Nueva unidad
           </Link>
 
-          {/* Configuración — con sub-ítems siempre visibles */}
           <div className="pt-1">
             <div className={`flex items-center gap-3 px-3 py-2 text-sm ${
               isConfigActive ? 'text-zinc-300' : 'text-zinc-500'
@@ -231,8 +357,6 @@ export function Nav({ email }: { email: string }) {
               <IconSettings />
               <span>Configuración</span>
             </div>
-
-            {/* Sub-ítems indentados */}
             <div className="ml-9 mt-0.5 space-y-0.5">
               {CONFIG_ITEMS.map(item => (
                 <Link
@@ -251,12 +375,20 @@ export function Nav({ email }: { email: string }) {
           </div>
         </nav>
 
-        {/* Footer — privacidad + email + logout */}
+        {/* Footer — acciones rápidas + email + logout */}
         <div className="p-4 border-t border-zinc-800 space-y-3">
-          {/* Botón de privacidad con label */}
+
+          {/* Recalcular ranking */}
           <div className="flex items-center gap-2">
+            <RecalcularButton />
+            <span className="text-xs text-zinc-600">Recalcular ranking</span>
+          </div>
+
+          {/* Privacidad + Tema en la misma fila */}
+          <div className="flex items-center gap-3">
             <PrivacyButton />
-            <span className="text-xs text-zinc-600">Modo privacidad</span>
+            <span className="text-xs text-zinc-600">Privacidad</span>
+            <ThemeButton className="ml-auto" />
           </div>
 
           <p className="text-xs text-zinc-500 truncate">{email}</p>
@@ -279,21 +411,17 @@ export function Nav({ email }: { email: string }) {
                       bg-zinc-900 border-t border-zinc-800">
         <div className="flex items-stretch h-16">
 
-          {/* Tab: Ranking */}
           <Link
             href="/"
             className={`flex-1 flex flex-col items-center justify-center gap-1 text-xs
                         transition-colors ${
-                          isRankingActive
-                            ? 'text-zinc-100'
-                            : 'text-zinc-500 hover:text-zinc-300'
+                          isRankingActive ? 'text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'
                         }`}
           >
             <IconRanking />
             <span>Ranking</span>
           </Link>
 
-          {/* Tab central: Nueva (botón destacado) */}
           <Link
             href="/nuevo"
             className="flex-1 flex flex-col items-center justify-center gap-1"
@@ -307,14 +435,11 @@ export function Nav({ email }: { email: string }) {
             </div>
           </Link>
 
-          {/* Tab: Configuración */}
           <Link
             href="/configuracion"
             className={`flex-1 flex flex-col items-center justify-center gap-1 text-xs
                         transition-colors ${
-                          isConfigActive
-                            ? 'text-zinc-100'
-                            : 'text-zinc-500 hover:text-zinc-300'
+                          isConfigActive ? 'text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'
                         }`}
           >
             <IconSettings />
