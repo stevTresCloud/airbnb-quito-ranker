@@ -1166,3 +1166,17 @@ lib/__tests__/scoring.test.ts  (6 tests)
       Requiere tabla `sectores_scoring_subcriterios` y UI en `/configuracion/sectores`.
       (actualmente los 7 criterios son fijos en DB; habría que agregar formulario de alta/baja y
       actualizar lib/scoring.ts para leer dinámicamente cualquier criterio activo)
+- [ ] **Explicación de criterios en el desglose de scoring** — en `/proyecto/[id]` tab Resumen,
+      agregar tooltip o acordeón expandible junto a cada criterio del desglose que explique
+      qué mide, cómo se calcula y qué implica el valor obtenido.
+      No requiere cambios de schema ni de lógica — solo UI educativa.
+- [ ] **Reordenar criterios de scoring por peso** — en `/configuracion/scoring`, al guardar nuevos pesos,
+      reordenar visualmente los criterios de mayor a menor peso (actualizar campo `orden` en DB).
+      Actualmente el orden es fijo. Implementar tras el guardado exitoso con un segundo UPDATE.
+- [ ] **Columnas ordenables en la tabla de ranking** — presionar el título de una columna ordena
+      las filas de mayor a menor (y viceversa con segundo clic). Implementar con `useState` de
+      `sortKey` + `sortDir` en `RankingDashboard.tsx`. No requiere cambios de backend.
+- [ ] **Selector de columnas en la tabla de ranking** (estilo Odoo) — botón ⚙ que despliega
+      un menú con checkboxes para mostrar/ocultar columnas (precio, cuota, área, sector, etc.).
+      Estado persistido en `localStorage` para que la preferencia sobreviva recargas.
+      No requiere cambios de backend.

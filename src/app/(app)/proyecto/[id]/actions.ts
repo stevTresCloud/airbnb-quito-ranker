@@ -190,15 +190,42 @@ export async function guardarEdicion(
 
   // Campos obligatorios
   const nombre         = str('nombre')
-  const sector         = str('sector')
   const tipo           = str('tipo')
   const precio_base    = num('precio_base')
   const area_interna   = num('area_interna_m2')
 
-  if (!nombre)                       return { ok: false, error: 'El nombre es obligatorio' }
-  if (!sector)                       return { ok: false, error: 'El sector es obligatorio' }
+  // Resolver sector desde el combobox (igual que en guardarProyecto)
+  const SENTINEL_NUEVO     = '__nuevo__'
+  const sector_select      = formData.get('sector_select') as string | null
+  const sector_nuevo_raw   = (formData.get('sector_nuevo') as string | null)?.trim()
+  let sector: string | null
+  if (sector_select === SENTINEL_NUEVO) {
+    sector = sector_nuevo_raw || null
+  } else {
+    sector = sector_select || null
+  }
+
+  if (!nombre)                          return { ok: false, error: 'El nombre es obligatorio' }
+  if (!sector)                          return { ok: false, error: 'El sector es obligatorio' }
   if (!precio_base || precio_base <= 0) return { ok: false, error: 'El precio debe ser mayor a 0' }
   if (!area_interna || area_interna <= 0) return { ok: false, error: 'El área debe ser mayor a 0' }
+
+  // Si es sector nuevo, crearlo en sectores_scoring (anti-duplicado)
+  if (sector_select === SENTINEL_NUEVO) {
+    const { data: existente } = await supabase
+      .from('sectores_scoring')
+      .select('nombre')
+      .ilike('nombre', sector)
+      .maybeSingle()
+    if (existente) {
+      sector = existente.nombre // normalizar nombre al existente
+    } else {
+      await supabase.from('sectores_scoring').insert({
+        nombre: sector, score_base: 0,
+        airbnb_noche_min: 0, airbnb_noche_max: 0, plusvalia_anual_estimada: 5,
+      })
+    }
+  }
 
   // Objeto con todos los campos editables del formulario
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

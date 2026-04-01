@@ -974,6 +974,74 @@ const [amobladoFinanciado, setAmobladoFinanciado] = useState(p.amoblado_financia
 El `name="amoblado_financiado"` garantiza que el valor llegue al Server Action.
 El `onChange` actualiza el estado local para mostrar/ocultar los campos dependientes.
 
+## Cierre de Fase 5 — Corrección sector como combobox en formulario de edición (2026-04-01)
+
+### Inconsistencia entre formulario rápido y formulario de edición
+
+Al implementar el formulario de edición completo en `/proyecto/[id]`, el campo Sector
+se dejó como `<input type="text">` libre. Esto creó dos problemas:
+
+1. **Integridad de datos**: el usuario podía escribir "González Suárez" con acento
+   distinto al que tiene en `sectores_scoring`, lo que causaba que `score_ubicacion`
+   devolviera 0 silenciosamente (lookup fallido en el mapa de scores).
+2. **Inconsistencia UX**: el formulario rápido (`/nuevo`) ya tenía combobox dinámico
+   desde Fase 3b, pero el formulario completo no.
+
+**Solución**: propagar el mismo patrón de FormularioRapido al formulario de edición.
+
+### Cómo propagar datos de Server Component a un sub-componente de Client Component
+
+El patrón del proyecto es: Server Component fetcha datos → Client Component los recibe como props.
+Cuando el Client Component delega a una función interna (`TabEditar`), los datos se pasan
+hacia abajo por props, no con un fetch nuevo.
+
+```
+page.tsx (Server Component)
+  → fetcha sectores_scoring en el mismo Promise.all
+  → pasa sectores como prop a <DetalleProyecto>
+
+DetalleProyecto.tsx (Client Component)
+  → recibe sectores en Props interface
+  → pasa sectores a <TabEditar sectores={sectores} />
+
+TabEditar (función interna del mismo archivo)
+  → tiene su propio useState para sectorSelect / sectorNuevo / sectorActivo
+  → renderiza el combobox con la misma lógica que FormularioRapido
+```
+
+La clave: `page.tsx` ya hacía un `Promise.all` con 4 queries — agregar el quinto
+(sectores) no agrega latencia porque corren en paralelo.
+
+### El Server Action también debe actualizarse cuando cambia el formulario
+
+Al reemplazar `<input name="sector">` por `<input type="hidden" name="sector_select">`,
+el Server Action `guardarEdicion` dejó de recibir el campo que esperaba. El build
+TypeScript no detecta esto porque `formData.get('sector')` devuelve `null` sin error.
+
+**Lección**: cada vez que se cambia el `name` de un campo en un formulario vinculado
+a un Server Action, hay que actualizar el action en paralelo. El comportamiento silencioso
+(`null` en lugar de error) hace que sea fácil pasarlo por alto.
+
+La corrección: `guardarEdicion` ahora lee `sector_select` y `sector_nuevo` con la
+misma lógica de resolución que `guardarProyecto` en `/nuevo/actions.ts`, incluyendo
+la creación del sector en `sectores_scoring` si es nuevo (anti-duplicado con `ilike`).
+
+### Hint enriquecido en el combobox de sector (edición)
+
+El hint muestra tanto el rango Airbnb como el `perfil` del sector si existe:
+
+```tsx
+{sectorActivo.airbnb_noche_max > 0 ? (
+  <p>Airbnb: ${min}–${max}/noche{perfil ? ` · ${perfil}` : ''}</p>
+) : (
+  <p>Afecta el score de ubicación y los precios Airbnb estimados.</p>
+)}
+```
+
+El campo `perfil` está en `sectores_scoring` y describe la tipología del sector
+(ej: "ejecutivos internacionales", "turistas culturales"). Lo carga el Server
+Component junto a los otros campos del sector.
+
 ## Fase 6 — Comparador
 *(se llenará al completar la fase)*
 

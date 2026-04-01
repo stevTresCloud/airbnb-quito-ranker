@@ -24,6 +24,7 @@ import { createSupabaseServer } from '@/lib/supabase'
 import { DetalleProyecto, type ProyectoDetalle, type CriterioRow } from './DetalleProyecto'
 import type { AdjuntoRow } from '@/components/AdjuntosPanel'
 import type { ConfiguracionRow } from '@/app/(app)/configuracion/actions'
+import type { SectorOption } from '@/types/proyecto'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -41,6 +42,7 @@ export default async function ProyectoDetallePage({ params }: PageProps) {
     { data: criterios },
     { data: adjuntosRaw },
     { data: config },
+    { data: sectoresRaw },
   ] = await Promise.all([
     supabase.from('proyectos').select('*').eq('id', id).single(),
     supabase.from('criterios_scoring')
@@ -52,7 +54,13 @@ export default async function ProyectoDetallePage({ params }: PageProps) {
       .eq('proyecto_id', id)
       .order('created_at', { ascending: false }),
     supabase.from('configuracion').select('*').single(),
+    supabase.from('sectores_scoring')
+      .select('nombre, score_base, airbnb_noche_min, airbnb_noche_max, perfil')
+      .eq('activo', true)
+      .order('score_base', { ascending: false }),
   ])
+
+  const sectores: SectorOption[] = sectoresRaw ?? []
 
   // Proyecto no encontrado → 404 estándar de Next.js
   if (errProyecto || !proyecto) {
@@ -80,6 +88,7 @@ export default async function ProyectoDetallePage({ params }: PageProps) {
       criterios={(criterios ?? []) as CriterioRow[]}
       adjuntos={adjuntos}
       config={(config ?? undefined) as ConfiguracionRow | undefined}
+      sectores={sectores}
     />
   )
 }

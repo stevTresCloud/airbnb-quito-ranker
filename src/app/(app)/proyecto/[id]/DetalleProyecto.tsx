@@ -21,6 +21,7 @@ import type { AdjuntoRow } from '@/components/AdjuntosPanel'
 import { guardarEdicion, recalcularUnidad, analizarConIA, eliminarProyecto } from './actions'
 import type { ActionState } from './actions'
 import type { ConfiguracionRow } from '@/app/(app)/configuracion/actions'
+import type { SectorOption } from '@/types/proyecto'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -210,9 +211,10 @@ interface Props {
   criterios: CriterioRow[]
   adjuntos: AdjuntoRow[]
   config?: ConfiguracionRow
+  sectores: SectorOption[]
 }
 
-export function DetalleProyecto({ proyecto, criterios, adjuntos, config }: Props) {
+export function DetalleProyecto({ proyecto, criterios, adjuntos, config, sectores }: Props) {
   const [tab, setTab] = useState<Tab>('resumen')
 
   // Acciones con useActionState — el tercer valor es el estado 'pending' (carga)
@@ -336,7 +338,7 @@ export function DetalleProyecto({ proyecto, criterios, adjuntos, config }: Props
 
       {/* ── Contenido por tab ─────────────────────────────────────────────── */}
       {tab === 'resumen'  && <TabResumen  proyecto={proyecto} criterios={criterios} />}
-      {tab === 'editar'   && <TabEditar   proyecto={proyecto} action={editAction} state={editState} pending={editPending} config={config} />}
+      {tab === 'editar'   && <TabEditar   proyecto={proyecto} action={editAction} state={editState} pending={editPending} config={config} sectores={sectores} />}
       {tab === 'adjuntos' && <AdjuntosPanel proyectoId={proyecto.id} adjuntosIniciales={adjuntos} />}
       {tab === 'ia'       && <TabIA        proyecto={proyecto} action={iaAction} state={iaState} pending={iaPending} />}
     </div>
@@ -543,21 +545,33 @@ function TabResumen({ proyecto: p, criterios }: { proyecto: ProyectoDetalle; cri
 // ═══════════════════════════════════════════════════════════════════════════════
 type SubTab = 'identificacion' | 'unidad' | 'pago' | 'airbnb'
 
+const SENTINEL_NUEVO = '__nuevo__'
+
 function TabEditar({
   proyecto: p,
   action,
   state,
   pending,
   config,
+  sectores,
 }: {
   proyecto: ProyectoDetalle
   action: (payload: FormData) => void
   state: ActionState
   pending: boolean
   config?: ConfiguracionRow
+  sectores: SectorOption[]
 }) {
   const [subTab, setSubTab] = useState<SubTab>('identificacion')
   const [amobladoFinanciado, setAmobladoFinanciado] = useState(p.amoblado_financiado)
+
+  // Sector: combobox con opción "Agregar nuevo", igual que en FormularioRapido
+  const esSectorDesconocido = p.sector !== '' && !sectores.find(s => s.nombre === p.sector)
+  const [sectorSelect, setSectorSelect] = useState(esSectorDesconocido ? SENTINEL_NUEVO : p.sector)
+  const [sectorNuevo, setSectorNuevo]   = useState(esSectorDesconocido ? p.sector : '')
+  const sectorActivo = sectorSelect === SENTINEL_NUEVO
+    ? null
+    : sectores.find(s => s.nombre === sectorSelect) ?? null
 
   const SUB_TABS: { key: SubTab; label: string }[] = [
     { key: 'identificacion', label: 'Identificación' },
@@ -670,7 +684,41 @@ function TabEditar({
           <input type="text" name="direccion" defaultValue={p.direccion ?? ''} className={INPUT_CLS} placeholder="Ej: Telégrafo y Últimas Noticias" />
         </Campo>
         <Campo label="Sector *">
-          <input type="text" name="sector" required defaultValue={p.sector} className={INPUT_CLS} />
+          {/* Campo oculto que envía el valor real al Server Action */}
+          <input type="hidden" name="sector_select" value={sectorSelect} />
+          <select
+            value={sectorSelect}
+            onChange={e => {
+              setSectorSelect(e.target.value)
+              if (e.target.value !== SENTINEL_NUEVO) setSectorNuevo('')
+            }}
+            required
+            className={SELECT_CLS}
+          >
+            <option value="">— seleccionar —</option>
+            {sectores.map(s => (
+              <option key={s.nombre} value={s.nombre}>{s.nombre}</option>
+            ))}
+            <option value={SENTINEL_NUEVO}>➕ Agregar nuevo sector</option>
+          </select>
+          {sectorSelect === SENTINEL_NUEVO && (
+            <input
+              name="sector_nuevo"
+              value={sectorNuevo}
+              onChange={e => setSectorNuevo(e.target.value)}
+              required
+              placeholder="Nombre del nuevo sector"
+              className={`mt-2 ${INPUT_CLS}`}
+            />
+          )}
+          {sectorActivo && sectorActivo.airbnb_noche_max > 0 ? (
+            <p className={HINT_CLS}>
+              Airbnb estimado: ${sectorActivo.airbnb_noche_min}–${sectorActivo.airbnb_noche_max}/noche
+              {sectorActivo.perfil ? ` · ${sectorActivo.perfil}` : ''}
+            </p>
+          ) : (
+            <p className={HINT_CLS}>Afecta el score de ubicación y los precios Airbnb estimados.</p>
+          )}
         </Campo>
         <div className="grid grid-cols-2 gap-4">
           <Campo label="Latitud">
