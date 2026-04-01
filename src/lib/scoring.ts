@@ -108,6 +108,18 @@ function scoreCalidad(p: InputScoring): number {
   return Math.max(0, Math.min(100, score))
 }
 
+function scoreEquipamiento(p: InputScoring): number {
+  // Parqueadero y bodega son extras que elevan el valor real del inmueble para Airbnb:
+  // – Parqueadero: alta demanda en Quito, diferenciador frente a unidades sin él
+  // – Bodega: comodidad operativa (almacén de lencería, artículos de limpieza, etc.)
+  // Bonus por tener ambos: la combinación es más valiosa que la suma de sus partes
+  let score = 0
+  if (p.tiene_parqueadero) score += 50
+  if (p.tiene_bodega)      score += 30
+  if (p.tiene_parqueadero && p.tiene_bodega) score += 20  // bonus combo
+  return Math.min(100, score)
+}
+
 function scoreConfianza(confianza_subjetiva: number | null): number {
   // 1→20, 2→40, 3→60, 4→80, 5→100
   if (confianza_subjetiva === null) return 0
@@ -153,8 +165,8 @@ export function calcularScores(
   if (!proyecto.permite_airbnb) {
     return {
       score_roi: 0, score_ubicacion: 0, score_constructora: 0,
-      score_entrega: 0, score_precio_m2: 0, score_calidad: 0,
-      score_confianza: 0, score_total: 0,
+      score_entrega: 0, score_equipamiento: 0, score_precio_m2: 0,
+      score_calidad: 0, score_confianza: 0, score_total: 0,
     }
   }
 
@@ -162,19 +174,21 @@ export function calcularScores(
   const score_ubicacion = scoreUbicacion(proyecto, scores_sectores)
   const score_constructora = scoreConstructora(proyecto)
   const score_entrega = scoreEntrega(proyecto.meses_espera)
+  const score_equipamiento = scoreEquipamiento(proyecto)
   const score_precio_m2 = scorePrecioM2(proyecto.precio_m2, todos_los_precio_m2)
   const score_calidad = scoreCalidad(proyecto)
   const score_confianza = scoreConfianza(proyecto.confianza_subjetiva)
 
   // score_total = suma ponderada (los pesos de la DB son decimales 0.00–1.00)
   const score_total = Math.round(
-    score_roi         * (pesos['roi']          ?? 0) +
-    score_ubicacion   * (pesos['ubicacion']    ?? 0) +
-    score_constructora* (pesos['constructora'] ?? 0) +
-    score_entrega     * (pesos['entrega']      ?? 0) +
-    score_precio_m2   * (pesos['precio_m2']    ?? 0) +
-    score_calidad     * (pesos['calidad']      ?? 0) +
-    score_confianza   * (pesos['confianza']    ?? 0)
+    score_roi          * (pesos['roi']           ?? 0) +
+    score_ubicacion    * (pesos['ubicacion']     ?? 0) +
+    score_constructora * (pesos['constructora']  ?? 0) +
+    score_entrega      * (pesos['entrega']       ?? 0) +
+    score_equipamiento * (pesos['equipamiento']  ?? 0) +
+    score_precio_m2    * (pesos['precio_m2']     ?? 0) +
+    score_calidad      * (pesos['calidad']       ?? 0) +
+    score_confianza    * (pesos['confianza']     ?? 0)
   )
 
   return {
@@ -182,6 +196,7 @@ export function calcularScores(
     score_ubicacion,
     score_constructora,
     score_entrega,
+    score_equipamiento,
     score_precio_m2,
     score_calidad,
     score_confianza,

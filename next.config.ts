@@ -1,6 +1,13 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
+  experimental: {
+    serverActions: {
+      // Límite ampliado para subida de archivos (PDFs, fotos, renders)
+      // 20 MB por archivo × hasta 3 archivos simultáneos + overhead de form = 50 MB
+      bodySizeLimit: '50mb',
+    },
+  },
   async headers() {
     return [
       {

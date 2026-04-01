@@ -30,6 +30,9 @@ const BASE: InputCalculos = {
   anos_credito: 6,
   viene_amoblado: false,
   costo_amoblado: null,
+  amoblado_financiado: false,
+  tasa_prestamo_amoblado: 12,
+  meses_prestamo_amoblado: 24,
   tiene_administracion_airbnb_incluida: false,
   porcentaje_gestion_airbnb: null,
   alicuota_mensual: 80,
@@ -83,6 +86,45 @@ describe('calculos.ts', () => {
   it('viene_amoblado=true → costo_amoblado_efectivo = 0', () => {
     const r = calcularMetricas({ ...BASE, viene_amoblado: true })
     expect(r.costo_amoblado_efectivo).toBe(0)
+  })
+
+  it('amoblado_financiado=false → cuota_prestamo_amoblado = 0, intereses = 0', () => {
+    const r = calcularMetricas({ ...BASE, amoblado_financiado: false })
+    expect(r.cuota_prestamo_amoblado).toBe(0)
+    expect(r.intereses_prestamo_amoblado).toBe(0)
+  })
+
+  it('amoblado_financiado=true → genera cuota mensual e intereses que reducen ganancia_neta', () => {
+    const sinPrestamo = calcularMetricas({ ...BASE, amoblado_financiado: false })
+    const conPrestamo = calcularMetricas({
+      ...BASE,
+      amoblado_financiado: true,
+      tasa_prestamo_amoblado: 12,
+      meses_prestamo_amoblado: 24,
+    })
+    // Debe haber cuota mensual positiva
+    expect(conPrestamo.cuota_prestamo_amoblado).toBeGreaterThan(0)
+    // Los intereses son positivos
+    expect(conPrestamo.intereses_prestamo_amoblado).toBeGreaterThan(0)
+    // La ganancia neta es menor con el préstamo
+    expect(conPrestamo.ganancia_neta).toBeLessThan(sinPrestamo.ganancia_neta)
+    // El flujo mensual es menor (descuenta la cuota del préstamo)
+    expect(conPrestamo.flujo_con_airbnb).toBeLessThan(sinPrestamo.flujo_con_airbnb)
+    // La diferencia en flujo es exactamente la cuota del préstamo
+    expect(sinPrestamo.flujo_con_airbnb - conPrestamo.flujo_con_airbnb)
+      .toBeCloseTo(conPrestamo.cuota_prestamo_amoblado)
+  })
+
+  it('amoblado_financiado=true + viene_amoblado=true → sin préstamo (viene amoblado, no hay costo)', () => {
+    const r = calcularMetricas({
+      ...BASE,
+      viene_amoblado: true,
+      amoblado_financiado: true,
+      tasa_prestamo_amoblado: 12,
+      meses_prestamo_amoblado: 24,
+    })
+    expect(r.cuota_prestamo_amoblado).toBe(0)
+    expect(r.intereses_prestamo_amoblado).toBe(0)
   })
 
   it('aporte_propio_total no cuenta la reserva dos veces', () => {

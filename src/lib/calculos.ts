@@ -32,6 +32,29 @@ export function calcularMetricas(p: InputCalculos): MetricasCalculadas {
     ? 0
     : (p.costo_amoblado ?? p.costo_amoblado_default)
 
+  // ── 1c. Préstamo de amoblado ──────────────────────────────────────────────────
+  // Si el amoblado no se puede pagar en efectivo al momento de la entrega,
+  // se modela como un préstamo personal: agrega cuota al flujo mensual e
+  // intereses al costo total (reducen ganancia_neta y ROI).
+  // Si viene_amoblado=true, no hay costo de amoblado → no hay préstamo.
+  let cuota_prestamo_amoblado = 0
+  let intereses_prestamo_amoblado = 0
+
+  if (p.amoblado_financiado && !p.viene_amoblado && costo_amoblado_efectivo > 0
+      && p.meses_prestamo_amoblado > 0) {
+    const tasa_m = p.tasa_prestamo_amoblado / 100 / 12
+    if (tasa_m > 0) {
+      // PMT estándar para el préstamo personal
+      cuota_prestamo_amoblado = costo_amoblado_efectivo * tasa_m
+        / (1 - Math.pow(1 + tasa_m, -p.meses_prestamo_amoblado))
+    } else {
+      // Sin intereses: pago parejo
+      cuota_prestamo_amoblado = costo_amoblado_efectivo / p.meses_prestamo_amoblado
+    }
+    intereses_prestamo_amoblado = (cuota_prestamo_amoblado * p.meses_prestamo_amoblado)
+      - costo_amoblado_efectivo
+  }
+
   // ── 2. Cuota mensual bancaria (fórmula PMT estándar) ─────────────────────────
   // Caso especial: tasa_anual = 0 → financiamiento directo sin intereses
   // En ese caso cuota = monto_financiar / total_meses (división simple)
@@ -63,13 +86,15 @@ export function calcularMetricas(p: InputCalculos): MetricasCalculadas {
   const ingreso_neto_mensual = ingreso_bruto_mensual - gastos_operativos
 
   // ── 4. Flujo mensual ─────────────────────────────────────────────────────────
-  // La alícuota sale del flujo siempre (no importa si hay Airbnb o no)
+  // La alícuota sale del flujo siempre (no importa si hay Airbnb o no).
+  // La cuota del préstamo de amoblado también sale si aplica.
   const sueldo_disponible = p.sueldo_neto * (p.porcentaje_ahorro / 100)
-  const flujo_sin_airbnb = sueldo_disponible - cuota_mensual - p.alicuota_mensual
-  const flujo_con_airbnb = sueldo_disponible + ingreso_neto_mensual - cuota_mensual - p.alicuota_mensual
+  const flujo_sin_airbnb = sueldo_disponible - cuota_mensual - p.alicuota_mensual - cuota_prestamo_amoblado
+  const flujo_con_airbnb = sueldo_disponible + ingreso_neto_mensual - cuota_mensual - p.alicuota_mensual - cuota_prestamo_amoblado
 
-  // Cobertura: cuánto representa el ingreso disponible vs la obligación mensual
-  const obligacion_mensual = cuota_mensual + p.alicuota_mensual
+  // Cobertura: cuánto representa el ingreso disponible vs la obligación mensual total
+  // Incluye cuota banco + alícuota + cuota préstamo amoblado (si aplica)
+  const obligacion_mensual = cuota_mensual + p.alicuota_mensual + cuota_prestamo_amoblado
   const cobertura_sin_airbnb = obligacion_mensual > 0
     ? (sueldo_disponible / obligacion_mensual) * 100
     : 100
@@ -83,7 +108,8 @@ export function calcularMetricas(p: InputCalculos): MetricasCalculadas {
   // Plusvalía compuesta sobre precio_base (no incluye parqueadero ni amoblado)
   const plusvalia_acumulada = p.precio_base * (Math.pow(1 + p.plusvalia_anual / 100, p.anos_proyeccion) - 1)
   const ganancia_bruta = plusvalia_acumulada + airbnb_acumulado
-  const ganancia_neta = ganancia_bruta - total_intereses
+  // Los intereses del préstamo de amoblado son un costo real que reduce la ganancia
+  const ganancia_neta = ganancia_bruta - total_intereses - intereses_prestamo_amoblado
 
   // ── 6. ROI ────────────────────────────────────────────────────────────────────
   // aporte_propio_total = todo el dinero del bolsillo del comprador antes de operar
@@ -112,6 +138,8 @@ export function calcularMetricas(p: InputCalculos): MetricasCalculadas {
     pago_entrada_neto,
     cuota_construccion,
     costo_amoblado_efectivo,
+    cuota_prestamo_amoblado,
+    intereses_prestamo_amoblado,
     cuota_mensual,
     total_pagado_credito,
     total_intereses,

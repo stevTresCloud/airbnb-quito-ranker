@@ -708,11 +708,271 @@ return <overlay>
 
 **WebAuthn y localhost en producción:** si Vercel asigna una URL de preview diferente a la de producción, el RP ID almacenado en las credenciales registradas no coincidirá con el nuevo origen → error de verificación. Registrar el dispositivo una vez por dominio (dev vs prod son distintos registros).
 
-## Fase 4 — Dashboard y Ranking
-*(se llenará al completar la fase)*
+## Fase 4 — Dashboard y Ranking (2026-03-31)
 
-## Fase 5 — Detalle de Unidad
-*(se llenará al completar la fase)*
+### Patrón Server Component → Client Component (el más importante de App Router)
+
+El dashboard usa el patrón fundamental de Next.js App Router:
+
+```
+page.tsx (Server Component)          RankingDashboard.tsx (Client Component)
+  ↓ fetch desde Supabase                ↓ useState para filtros
+  ↓ datos como props          →→→→→→    ↓ filtra/ordena en memoria del browser
+  ↓ sin JavaScript en cliente           ↓ re-renders instantáneos sin round-trip
+```
+
+**Por qué esta separación:**
+- Server Component: puede leer la DB directamente, corre en el servidor, no tiene `useState`
+- Client Component: tiene `useState` / `useMemo`, pero no puede leer la DB
+- La separación es obligatoria — mezclar rompe el build
+
+**Cuándo filtrar en cliente vs servidor:**
+Para ~20 proyectos, filtrar client-side es más rápido (0 latencia) y más simple.
+Si hubiera miles de filas, usaríamos URL query params (`?sector=Quicentro`) para
+que el Server Component filtre en la query de Supabase.
+
+### `select()` explícito vs `select('*')`
+
+```typescript
+// ✓ Solo los campos que necesita el dashboard (~15 campos)
+const { data } = await supabase.from('proyectos').select('id, nombre, score_total, ...')
+
+// ✗ Envía todos los ~50 campos incluyendo notas, análisis IA, etc.
+const { data } = await supabase.from('proyectos').select('*')
+```
+
+Para una app personal la diferencia es mínima, pero es buena práctica ser explícito.
+
+### Cast doble `as unknown as T[]`
+
+Cuando le pasas un string dinámico a `.select()`, Supabase TypeScript no puede inferir
+el tipo resultado — lo tipifica como `GenericStringError[]`. Para convertirlo al tipo
+propio, se necesita el doble cast:
+
+```typescript
+const proyectos = (data ?? []) as unknown as ProyectoRanking[]
+// El cast directo `as ProyectoRanking[]` falla: los tipos no se superponen.
+// `as unknown` primero "borra" el tipo → luego `as ProyectoRanking[]` lo reasigna.
+```
+
+Alternativa más robusta (para fases futuras): usar los tipos generados por
+`supabase gen types typescript` — pero requiere setup adicional.
+
+### `useMemo` para filtros sobre arrays
+
+```typescript
+const filasFiltradas = useMemo(() => {
+  // pipeline de filtros...
+}, [proyectos, filtros])
+```
+
+Sin `useMemo`, React recalcularía el pipeline completo en cada keystroke de
+cualquier input de la página. Con `useMemo`, solo recalcula cuando cambian
+`proyectos` (datos de Supabase) o `filtros` (estado del usuario).
+
+### Fase 4.a — Enmascarar inputs de formulario con privacyMode
+
+El modo privacidad (`usePrivacy()`) ya ocultaba montos en el ranking con `<MontoPrivado>`.
+Para los inputs editables de `ConfiguracionForm` la técnica es diferente:
+
+```tsx
+// Cuando privacyMode=true:
+<input type="hidden" name={name} defaultValue={valorReal} />   // valor real → form lo enviará
+<div className="...">••••</div>                                  // solo display visual
+
+// Cuando privacyMode=false: input numérico normal
+<input type="number" name={name} defaultValue={valorReal} />
+```
+
+**Por qué no simplemente `type="password"`:**
+`type="password"` en inputs numéricos no es HTML estándar — algunos browsers
+ignoran `min`/`max`/`step`. El patrón hidden + div es más predecible.
+
+**Implicación de UX:** en modo privacidad los campos no son editables (están
+enmascarados). Para editar, el usuario desactiva el modo privacidad primero.
+Esto es intencional — si estás en modo "hay alguien mirando", no deberías editar.
+
+## Fase 5 — Detalle de Unidad (2026-03-31)
+
+### Server Actions con `.bind()` para pasar el ID
+
+Cuando un Server Action necesita parámetros fijos (como el ID de un proyecto),
+se usa `.bind()` antes de pasarlo a `useActionState`:
+
+```tsx
+// En el componente
+const accion = miServerAction.bind(null, proyectoId)
+const [state, formAction] = useActionState(accion, null)
+```
+
+El Server Action recibe el ID como primer argumento, antes de `_prev` y `formData`:
+```ts
+export async function guardarEdicion(
+  id: string,           // viene del bind
+  _prev: ActionState,   // estado anterior
+  formData: FormData    // datos del form
+) { ... }
+```
+
+### Sub-tabs en formulario con campos siempre en el DOM
+
+Para no perder datos al cambiar de sub-tab (Identificación / Unidad / Pago / Airbnb),
+los tabs usan `className={subTab === 'X' ? '' : 'hidden'}` — todos están en el DOM.
+Si usaras renderizado condicional (`&&`) los inputs desaparecerían del DOM y no
+se incluirían en el `FormData` al hacer submit.
+
+```tsx
+<div className={subTab === 'pago' ? '' : 'hidden'}>
+  <input name="porcentaje_entrada" ... />
+</div>
+```
+
+### Supabase Storage — URLs firmadas (signed URLs)
+
+Los archivos en un bucket privado no son accesibles con URL directa. Para mostrarlos,
+se genera una URL firmada con TTL (tiempo de vida):
+
+```ts
+const { data } = await supabase.storage
+  .from('adjuntos-proyectos')
+  .createSignedUrl(path, 60 * 60 * 24)  // válida 24 horas
+```
+
+Las URLs firmadas se generan en el Server Component al cargar la página — no en el cliente.
+
+### Múltiples archivos con FormData.getAll()
+
+Un `<input type="file" multiple name="archivo">` envía varios archivos con la misma clave.
+El Server Action debe iterar con `getAll()`, no `get()`:
+
+```ts
+const archivos = formData.getAll('archivo') as File[]
+for (const archivo of archivos) { ... }
+```
+
+En el cliente, `DataTransfer` permite sincronizar archivos drag & drop con el input nativo:
+```ts
+const dt = new DataTransfer()
+archivos.forEach(f => dt.items.add(f))
+fileInputRef.current.files = dt.files
+```
+
+### `bodySizeLimit` para Server Actions
+
+Por defecto, el cuerpo de un Server Action está limitado a 1 MB. Para subir archivos:
+
+```ts
+// next.config.ts
+const nextConfig: NextConfig = {
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '50mb',
+    },
+  },
+}
+```
+
+### Claude API — el modelo a veces ignora "no markdown"
+
+Aunque el prompt diga "devuelve solo JSON sin markdown", Claude a veces envuelve
+la respuesta en ` ```json ``` `. Hay que limpiar antes de `JSON.parse()`:
+
+```ts
+const limpio = texto
+  .replace(/^```(?:json)?\s*/i, '')
+  .replace(/\s*```\s*$/i, '')
+  .trim()
+const data = JSON.parse(limpio)
+```
+
+### Windows env vars anulan .env.local
+
+Next.js carga variables de entorno en este orden (mayor prioridad primero):
+1. Variables del proceso (sistema operativo / shell)
+2. `.env.local`
+3. `.env`
+
+Si existe una variable de sistema (`setx ANTHROPIC_API_KEY=xxx` en Windows), sobrescribe
+lo que hay en `.env.local` aunque ese archivo tenga el valor correcto.
+
+Para eliminarla en PowerShell (no `unset` — ese es bash):
+```powershell
+Remove-Item Env:ANTHROPIC_API_KEY
+```
+
+Además: VSCode hereda el entorno del proceso con el que fue abierto. Si la variable
+existía cuando se abrió VSCode, los terminales dentro del IDE la heredan aunque la
+elimines del sistema operativo. Hay que reiniciar VSCode.
+
+---
+
+## Post-Fase 5 — Mejoras al motor de negocio (2026-04-01)
+
+### Problema con normalización min-max de ROI con pocos proyectos
+
+El motor normaliza `score_roi` entre el mínimo y máximo del conjunto actual:
+
+```ts
+score_roi = ((roi - roi_min) / (roi_max - roi_min)) * 100
+```
+
+Con 2-3 proyectos, el que tiene menor ROI **siempre** obtiene 0 aunque su ROI sea excelente.
+Con Haiku (11.14%) y Lucie (14.25%), Haiku recibía score_roi=0 por tener el ROI más bajo.
+
+**Consecuencia:** Un proyecto sólido parece malo porque el modelo lo compara relativamente,
+no contra un estándar de mercado absoluto.
+
+**Pendiente de implementar:** Reemplazar por escala absoluta de mercado:
+```ts
+score_roi = Math.min(100, Math.max(0, (roi_anual / 16) * 100))
+// 8% → 50, 12% → 75, 16%+ → 100
+```
+
+### Nuevo criterio de scoring — patrón de extensión
+
+Para agregar un nuevo criterio al motor:
+1. **SQL:** `INSERT INTO criterios_scoring` + ajustar `peso` de otros criterios (suma = 1.00)
+2. **SQL:** `ALTER TABLE proyectos ADD COLUMN score_X numeric`
+3. **Tipos:** agregar a `InputScoring` y `ScoresCalculados`
+4. **scoring.ts:** nueva función `scoreX()` + incluir en `calcularScores()` + return
+5. **Actions:** pasar nuevos campos en `buildInputScoring()` y `metricasUpdate()`
+6. **UI:** agregar a `SCORE_KEY_MAP` en DetalleProyecto.tsx + al tipo `ProyectoDetalle`
+
+### Regla de negocio en el modelo financiero vs penalización de score
+
+Cuando hay una restricción real (ej: "no tengo dinero para amoblar al momento de entrega"),
+es mejor modelarla financieramente que penalizar el score artificialmente.
+
+**Mal enfoque:** `amoblado_con_prestamo = true → score -= 15`
+- El número de penalización es arbitrario
+- No muestra el impacto real en flujo/ROI
+
+**Buen enfoque:** agregar campos `amoblado_financiado`, `tasa_prestamo_amoblado`, `meses_prestamo_amoblado`
+- La cuota del préstamo reduce `flujo_con_airbnb` y `cobertura_con_airbnb`
+- Los intereses reducen `ganancia_neta` → el ROI baja orgánicamente
+- El score refleja números reales, no una penalización manual
+
+### Estado condicional en formularios de Server Actions
+
+Para mostrar/ocultar campos dependiendo de un checkbox, necesitas React state
+incluso en un formulario que usa Server Actions:
+
+```tsx
+const [amobladoFinanciado, setAmobladoFinanciado] = useState(p.amoblado_financiado)
+
+<input
+  type="checkbox"
+  name="amoblado_financiado"
+  defaultChecked={p.amoblado_financiado}
+  onChange={e => setAmobladoFinanciado(e.target.checked)}
+/>
+{amobladoFinanciado && (
+  <input name="tasa_prestamo_amoblado" ... />
+)}
+```
+
+El `name="amoblado_financiado"` garantiza que el valor llegue al Server Action.
+El `onChange` actualiza el estado local para mostrar/ocultar los campos dependientes.
 
 ## Fase 6 — Comparador
 *(se llenará al completar la fase)*

@@ -2,13 +2,14 @@ import { describe, it, expect } from 'vitest'
 import { calcularScores } from '../scoring'
 import type { InputScoring, PesosCriterios } from '../../types/proyecto'
 
-// Pesos de ejemplo que suman 1.00
+// Pesos de ejemplo que suman 1.00 (incluye el nuevo criterio equipamiento)
 const PESOS: PesosCriterios = {
   roi: 0.30,
   ubicacion: 0.20,
   constructora: 0.15,
   entrega: 0.15,
-  precio_m2: 0.10,
+  equipamiento: 0.07,
+  precio_m2: 0.03,
   calidad: 0.07,
   confianza: 0.03,
 }
@@ -43,6 +44,8 @@ const BASE: InputScoring = {
   tiene_administracion_airbnb_incluida: false,
   unidades_totales_edificio: 30,
   avance_obra_porcentaje: 40,
+  tiene_parqueadero: false,
+  tiene_bodega: false,
   confianza_subjetiva: 4,
   permite_airbnb: true,
 }
@@ -55,19 +58,46 @@ describe('scoring.ts', () => {
     expect(r.score_ubicacion).toBe(0)
   })
 
-  it('score_total = suma ponderada correcta con pesos de ejemplo', () => {
+  it('score_total = suma ponderada correcta con pesos de ejemplo (8 criterios)', () => {
     // Proyecto único → score_roi = 100 (único proyecto, max normalizado)
     const r = calcularScores(BASE, PESOS, [8], [2000], SCORES_SECTORES)
     const esperado = Math.round(
-      r.score_roi         * PESOS.roi +
-      r.score_ubicacion   * PESOS.ubicacion +
-      r.score_constructora* PESOS.constructora +
-      r.score_entrega     * PESOS.entrega +
-      r.score_precio_m2   * PESOS.precio_m2 +
-      r.score_calidad     * PESOS.calidad +
-      r.score_confianza   * PESOS.confianza
+      r.score_roi          * PESOS.roi +
+      r.score_ubicacion    * PESOS.ubicacion +
+      r.score_constructora * PESOS.constructora +
+      r.score_entrega      * PESOS.entrega +
+      r.score_equipamiento * PESOS.equipamiento +
+      r.score_precio_m2    * PESOS.precio_m2 +
+      r.score_calidad      * PESOS.calidad +
+      r.score_confianza    * PESOS.confianza
     )
     expect(r.score_total).toBe(esperado)
+  })
+
+  it('score_equipamiento: ninguno=0, solo parqueadero=50, solo bodega=30, ambos=100', () => {
+    const ninguno = calcularScores(
+      { ...BASE, tiene_parqueadero: false, tiene_bodega: false },
+      PESOS, [8], [2000], SCORES_SECTORES
+    )
+    expect(ninguno.score_equipamiento).toBe(0)
+
+    const soloPark = calcularScores(
+      { ...BASE, tiene_parqueadero: true, tiene_bodega: false },
+      PESOS, [8], [2000], SCORES_SECTORES
+    )
+    expect(soloPark.score_equipamiento).toBe(50)
+
+    const soloBodega = calcularScores(
+      { ...BASE, tiene_parqueadero: false, tiene_bodega: true },
+      PESOS, [8], [2000], SCORES_SECTORES
+    )
+    expect(soloBodega.score_equipamiento).toBe(30)
+
+    const ambos = calcularScores(
+      { ...BASE, tiene_parqueadero: true, tiene_bodega: true },
+      PESOS, [8], [2000], SCORES_SECTORES
+    )
+    expect(ambos.score_equipamiento).toBe(100)
   })
 
   it('score_constructora: reputada=80 base, con_retrasos=20 base', () => {

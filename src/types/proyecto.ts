@@ -26,6 +26,11 @@ export interface InputCalculos {
   viene_amoblado: boolean
   costo_amoblado: number | null
 
+  // Préstamo de amoblado (si no se puede pagar en efectivo al momento de la entrega)
+  amoblado_financiado: boolean        // true = se financia con préstamo personal
+  tasa_prestamo_amoblado: number      // tasa anual del préstamo (ej: 12%)
+  meses_prestamo_amoblado: number     // plazo en meses (ej: 24)
+
   // Airbnb
   tiene_administracion_airbnb_incluida: boolean
   porcentaje_gestion_airbnb: number | null
@@ -97,6 +102,10 @@ export interface MetricasCalculadas {
   ganancia_bruta: number
   ganancia_neta: number
 
+  // Préstamo amoblado (0 si no hay préstamo)
+  cuota_prestamo_amoblado: number
+  intereses_prestamo_amoblado: number
+
   // ROI
   aporte_propio_total: number
   roi_anual: number
@@ -137,6 +146,10 @@ export interface InputScoring {
   unidades_totales_edificio: number | null
   avance_obra_porcentaje: number
 
+  // Equipamiento de la unidad
+  tiene_parqueadero: boolean
+  tiene_bodega: boolean
+
   // Confianza subjetiva
   confianza_subjetiva: number | null
 
@@ -151,6 +164,7 @@ export interface ScoresCalculados {
   score_ubicacion: number
   score_constructora: number
   score_entrega: number
+  score_equipamiento: number
   score_precio_m2: number
   score_calidad: number
   score_confianza: number

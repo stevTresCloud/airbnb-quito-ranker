@@ -15,8 +15,16 @@
 import { useActionState } from 'react'
 import Link from 'next/link'
 import { guardarConfiguracion, recalcularRanking, type ConfiguracionRow, type ActionState } from './actions'
+import { usePrivacy } from '@/contexts/PrivacyContext'
 
-// Componente reutilizable para inputs numéricos
+// ─── Campo numérico con soporte de privacidad ────────────────────────────────
+//
+// Cuando privacyMode=true:
+//   - Se muestra un div visual con "••••" (no editable)
+//   - Se mantiene un <input type="hidden"> con el valor real para que el form
+//     siga pudiendo guardarse correctamente sin exponer el número en pantalla.
+// Cuando privacyMode=false: input numérico normal, completamente editable.
+
 function CampoNumerico({
   label,
   name,
@@ -26,6 +34,7 @@ function CampoNumerico({
   step = 'any',
   suffix,
   disabled,
+  privacyMode,
 }: {
   label: string
   name: string
@@ -35,6 +44,7 @@ function CampoNumerico({
   step?: string
   suffix?: string
   disabled?: boolean
+  privacyMode?: boolean
 }) {
   return (
     <div>
@@ -42,20 +52,80 @@ function CampoNumerico({
         {label}
         {suffix && <span className="text-zinc-600 ml-1">({suffix})</span>}
       </label>
-      <input
-        id={name}
-        name={name}
-        type="number"
-        defaultValue={defaultValue}
-        min={min}
-        max={max}
-        step={step}
-        disabled={disabled}
-        className="w-full rounded-lg bg-zinc-900 border border-zinc-800 px-3 py-2.5
-                   text-zinc-100 text-sm
-                   focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent
-                   disabled:opacity-50"
-      />
+
+      {privacyMode ? (
+        <>
+          {/* Valor real oculto — el form lo enviará igual al servidor */}
+          <input type="hidden" name={name} defaultValue={defaultValue} />
+          {/* Máscara visual */}
+          <div className="w-full rounded-lg bg-zinc-900 border border-zinc-800 px-3 py-2.5
+                          text-zinc-600 text-sm tracking-widest select-none cursor-default">
+            ••••
+          </div>
+        </>
+      ) : (
+        <input
+          id={name}
+          name={name}
+          type="number"
+          defaultValue={defaultValue}
+          min={min}
+          max={max}
+          step={step}
+          disabled={disabled}
+          className="w-full rounded-lg bg-zinc-900 border border-zinc-800 px-3 py-2.5
+                     text-zinc-100 text-sm
+                     focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent
+                     disabled:opacity-50"
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── Campo de texto con soporte de privacidad ─────────────────────────────────
+// El banco no es un dato numérico, pero el nombre del banco también puede
+// revelar información financiera sensible.
+
+function CampoTexto({
+  label,
+  name,
+  defaultValue,
+  disabled,
+  privacyMode,
+}: {
+  label: string
+  name: string
+  defaultValue: string
+  disabled?: boolean
+  privacyMode?: boolean
+}) {
+  return (
+    <div>
+      <label htmlFor={name} className="block text-sm font-medium text-zinc-400 mb-1">
+        {label}
+      </label>
+      {privacyMode ? (
+        <>
+          <input type="hidden" name={name} defaultValue={defaultValue} />
+          <div className="w-full rounded-lg bg-zinc-900 border border-zinc-800 px-3 py-2.5
+                          text-zinc-600 text-sm tracking-widest select-none cursor-default">
+            ••••
+          </div>
+        </>
+      ) : (
+        <input
+          id={name}
+          name={name}
+          type="text"
+          defaultValue={defaultValue}
+          disabled={disabled}
+          className="w-full rounded-lg bg-zinc-900 border border-zinc-800 px-3 py-2.5
+                     text-zinc-100 text-sm
+                     focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent
+                     disabled:opacity-50"
+        />
+      )}
     </div>
   )
 }
@@ -75,13 +145,15 @@ function Seccion({ titulo, children }: { titulo: string; children: React.ReactNo
 }
 
 export default function ConfiguracionForm({ config }: { config: ConfiguracionRow }) {
-  // useActionState conecta el formulario con el Server Action.
-  // Devuelve [estado, acción, estaPendiente]:
-  // - estado: lo que devolvió el Server Action en la última ejecución (null inicialmente)
-  // - acción: función que pasamos al <form action={...}>
-  // - estaPendiente: true mientras el servidor procesa la acción
   const [estado, accion, pendiente] = useActionState<ActionState, FormData>(guardarConfiguracion, null)
   const [estadoRecalc, accionRecalc, pendienteRecalc] = useActionState<ActionState, FormData>(recalcularRanking, null)
+
+  // Lee el modo privacidad global — mismo estado que oculta montos en el ranking.
+  // Si privacyMode=true, los campos financieros muestran •••• en lugar del valor real.
+  const { privacyMode } = usePrivacy()
+
+  // Props comunes que reciben todos los campos
+  const privacy = privacyMode
 
   return (
     <div className="space-y-8">
@@ -124,6 +196,7 @@ export default function ConfiguracionForm({ config }: { config: ConfiguracionRow
             step="0.01"
             suffix="USD"
             disabled={pendiente}
+            privacyMode={privacy}
           />
           <CampoNumerico
             label="% sueldo disponible para cuota"
@@ -134,6 +207,7 @@ export default function ConfiguracionForm({ config }: { config: ConfiguracionRow
             step="0.1"
             suffix="%"
             disabled={pendiente}
+            privacyMode={privacy}
           />
           <CampoNumerico
             label="% gastos operativos Airbnb"
@@ -144,26 +218,18 @@ export default function ConfiguracionForm({ config }: { config: ConfiguracionRow
             step="0.1"
             suffix="% del ingreso bruto"
             disabled={pendiente}
+            privacyMode={privacy}
           />
         </Seccion>
 
         <Seccion titulo="Financiamiento por defecto">
-          <div>
-            <label htmlFor="banco_default" className="block text-sm font-medium text-zinc-400 mb-1">
-              Banco
-            </label>
-            <input
-              id="banco_default"
-              name="banco_default"
-              type="text"
-              defaultValue={config.banco_default}
-              disabled={pendiente}
-              className="w-full rounded-lg bg-zinc-900 border border-zinc-800 px-3 py-2.5
-                         text-zinc-100 text-sm
-                         focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent
-                         disabled:opacity-50"
-            />
-          </div>
+          <CampoTexto
+            label="Banco"
+            name="banco_default"
+            defaultValue={config.banco_default}
+            disabled={pendiente}
+            privacyMode={privacy}
+          />
           <CampoNumerico
             label="Tasa de interés anual"
             name="tasa_default"
@@ -173,6 +239,7 @@ export default function ConfiguracionForm({ config }: { config: ConfiguracionRow
             step="0.1"
             suffix="% anual"
             disabled={pendiente}
+            privacyMode={privacy}
           />
           <CampoNumerico
             label="Años del crédito"
@@ -183,6 +250,7 @@ export default function ConfiguracionForm({ config }: { config: ConfiguracionRow
             step="1"
             suffix="años"
             disabled={pendiente}
+            privacyMode={privacy}
           />
           <CampoNumerico
             label="Años de proyección"
@@ -193,6 +261,7 @@ export default function ConfiguracionForm({ config }: { config: ConfiguracionRow
             step="1"
             suffix="años"
             disabled={pendiente}
+            privacyMode={privacy}
           />
         </Seccion>
 
@@ -205,6 +274,7 @@ export default function ConfiguracionForm({ config }: { config: ConfiguracionRow
             step="100"
             suffix="USD"
             disabled={pendiente}
+            privacyMode={privacy}
           />
         </Seccion>
 
@@ -225,6 +295,7 @@ export default function ConfiguracionForm({ config }: { config: ConfiguracionRow
               step="100"
               suffix="USD"
               disabled={pendiente}
+              privacyMode={privacy}
             />
             <CampoNumerico
               label="% Entrada"
@@ -235,6 +306,7 @@ export default function ConfiguracionForm({ config }: { config: ConfiguracionRow
               step="0.1"
               suffix="% del total"
               disabled={pendiente}
+              privacyMode={privacy}
             />
             <CampoNumerico
               label="% Durante construcción"
@@ -245,6 +317,7 @@ export default function ConfiguracionForm({ config }: { config: ConfiguracionRow
               step="0.1"
               suffix="% del total"
               disabled={pendiente}
+              privacyMode={privacy}
             />
             <CampoNumerico
               label="Cuotas durante construcción"
@@ -254,6 +327,7 @@ export default function ConfiguracionForm({ config }: { config: ConfiguracionRow
               step="1"
               suffix="cuotas mensuales"
               disabled={pendiente}
+              privacyMode={privacy}
             />
             <CampoNumerico
               label="% Contra entrega (banco)"
@@ -264,6 +338,7 @@ export default function ConfiguracionForm({ config }: { config: ConfiguracionRow
               step="0.1"
               suffix="% del total"
               disabled={pendiente}
+              privacyMode={privacy}
             />
           </div>
         </section>

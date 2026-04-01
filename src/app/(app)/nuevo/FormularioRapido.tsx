@@ -70,6 +70,7 @@ export default function FormularioRapido({ datosIniciales, sectores }: Props) {
           placeholder="Ej: Legacy Suite 4B"
           className={claseInput('nombre')}
         />
+        <p className="text-xs text-zinc-500 mt-1">Incluye el nombre del edificio y el tipo si hay varias opciones.</p>
       </div>
 
       {/* Sector + Tipo en fila */}
@@ -111,10 +112,12 @@ export default function FormularioRapido({ datosIniciales, sectores }: Props) {
           )}
 
           {/* Hint de precios Airbnb del sector seleccionado */}
-          {sectorActivo && sectorActivo.airbnb_noche_max > 0 && (
+          {sectorActivo && sectorActivo.airbnb_noche_max > 0 ? (
             <p className="mt-1 text-xs text-zinc-500">
               Airbnb estimado: ${sectorActivo.airbnb_noche_min}–${sectorActivo.airbnb_noche_max}/noche
             </p>
+          ) : (
+            <p className="mt-1 text-xs text-zinc-600">Afecta el score de ubicación y los precios Airbnb estimados.</p>
           )}
         </div>
 
@@ -134,6 +137,7 @@ export default function FormularioRapido({ datosIniciales, sectores }: Props) {
               <option key={t} value={t}>{t}</option>
             ))}
           </select>
+          <p className="mt-1 text-xs text-zinc-600">Tipo de unidad según el brochure del proyecto.</p>
         </div>
       </div>
 
@@ -149,11 +153,12 @@ export default function FormularioRapido({ datosIniciales, sectores }: Props) {
             type="number"
             required
             min={1}
-            step={1}
+            step={0.01}
             defaultValue={datosIniciales?.precio_base ?? ''}
             placeholder="80000"
             className={claseInput('precio_base')}
           />
+          <p className="mt-1 text-xs text-zinc-600">Solo el depto, sin parqueadero. Se agregan en el detalle.</p>
         </div>
 
         <div>
@@ -171,25 +176,36 @@ export default function FormularioRapido({ datosIniciales, sectores }: Props) {
             placeholder="40"
             className={claseInput('area_interna_m2')}
           />
+          <p className="mt-1 text-xs text-zinc-600">Área habitable. El balcón se ingresa aparte en el detalle.</p>
         </div>
       </div>
 
-      {/* Meses de espera + Unidades disponibles en fila */}
+      {/* Fecha de entrega + Unidades disponibles en fila */}
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="block text-sm font-medium text-zinc-300 mb-1">
-            Meses hasta entrega *
+            Fecha de entrega *
             {inciertos.has('meses_espera') && <span className="ml-1 text-xs text-yellow-400">⚠</span>}
           </label>
           <input
+            name="fecha_entrega"
+            type="date"
+            defaultValue={datosIniciales?.meses_espera
+              ? '' // si viene de voz/foto solo tenemos meses, no fecha exacta
+              : ''}
+            className={claseInput('meses_espera')}
+          />
+          <p className="mt-1 text-xs text-zinc-600">Los meses se calculan automáticamente desde esta fecha.</p>
+          {/* Fallback manual de meses si no se conoce la fecha exacta */}
+          <label className="block text-xs text-zinc-500 mt-2 mb-1">O meses aproximados (si no sabes la fecha)</label>
+          <input
             name="meses_espera"
             type="number"
-            required
             min={0}
             step={1}
             defaultValue={datosIniciales?.meses_espera ?? ''}
             placeholder="18"
-            className={claseInput('meses_espera')}
+            className="w-full rounded-lg border border-zinc-700 px-3 py-1.5 text-sm bg-zinc-900 text-white focus:outline-none focus:ring-1 focus:ring-zinc-500"
           />
         </div>
 
@@ -204,9 +220,10 @@ export default function FormularioRapido({ datosIniciales, sectores }: Props) {
             min={0}
             step={1}
             defaultValue={datosIniciales?.unidades_disponibles ?? ''}
-            placeholder="Dejar vacío si no sabe"
+            placeholder="Vacío = no sé"
             className={claseInput('unidades_disponibles')}
           />
+          <p className="mt-1 text-xs text-zinc-600">≤3 badge rojo "¡Últimas!", ≤10 badge naranja "Pocas".</p>
         </div>
       </div>
 
@@ -224,6 +241,7 @@ export default function FormularioRapido({ datosIniciales, sectores }: Props) {
           <option value={PREFERENCIAS[0]}>★ Primera opción</option>
           <option value={PREFERENCIAS[1]}>Alternativa</option>
         </select>
+        <p className="mt-1 text-xs text-zinc-600">Permite filtrar el ranking a solo tu apuesta real.</p>
       </div>
 
       {/* Feedback de error */}

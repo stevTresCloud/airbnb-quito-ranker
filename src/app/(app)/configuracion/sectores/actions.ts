@@ -16,6 +16,7 @@ export interface SectorRow {
   perfil: string | null
   activo: boolean
   orden: number | null
+  plusvalia_anual_estimada: number
 }
 
 export type SectoresActionState = { ok: boolean; error?: string } | null
@@ -30,7 +31,7 @@ export async function guardarSectores(
   if (!user) return { ok: false, error: 'No autorizado' }
 
   // Leer todos los campos del formulario: score_<id>, airbnb_min_<id>, airbnb_max_<id>
-  const updates: { id: string; score_base: number; airbnb_noche_min: number; airbnb_noche_max: number }[] = []
+  const updates: { id: string; score_base: number; airbnb_noche_min: number; airbnb_noche_max: number; plusvalia_anual_estimada: number }[] = []
 
   for (const [key, value] of formData.entries()) {
     if (key.startsWith('score_')) {
@@ -42,6 +43,7 @@ export async function guardarSectores(
         score_base: score,
         airbnb_noche_min: Number(formData.get(`airbnb_min_${id}`) ?? 0),
         airbnb_noche_max: Number(formData.get(`airbnb_max_${id}`) ?? 0),
+        plusvalia_anual_estimada: Number(formData.get(`plusvalia_${id}`) ?? 5),
       })
     }
   }
@@ -53,6 +55,7 @@ export async function guardarSectores(
         score_base: u.score_base,
         airbnb_noche_min: u.airbnb_noche_min,
         airbnb_noche_max: u.airbnb_noche_max,
+        plusvalia_anual_estimada: u.plusvalia_anual_estimada,
         updated_at: new Date().toISOString(),
       })
       .eq('id', u.id)
@@ -92,9 +95,11 @@ export async function agregarSector(
 
   if (existente) return { ok: false, error: `Ya existe un sector con ese nombre: "${existente.nombre}"` }
 
+  const plusvalia = Number(formData.get('nuevo_plusvalia') ?? 5)
+
   const { error } = await supabase
     .from('sectores_scoring')
-    .insert({ nombre, zona, score_base, airbnb_noche_min: airbnb_min, airbnb_noche_max: airbnb_max, activo: true })
+    .insert({ nombre, zona, score_base, airbnb_noche_min: airbnb_min, airbnb_noche_max: airbnb_max, plusvalia_anual_estimada: plusvalia, activo: true })
 
   if (error) return { ok: false, error: error.message }
 

@@ -165,15 +165,16 @@ create table criterios_scoring (
 alter table criterios_scoring enable row level security;
 create policy "solo autenticado" on criterios_scoring using (auth.role() = 'authenticated');
 
--- Valores iniciales
+-- Valores iniciales (8 criterios tras migración fase5_equipamiento_amoblado.sql)
 insert into criterios_scoring (clave, nombre, descripcion, peso, orden) values
-  ('roi',          'Rentabilidad (ROI)',       'ROI anual proyectado',                        0.30, 1),
-  ('ubicacion',    'Ubicación',                'Sector, piso y orientación',                  0.20, 2),
-  ('constructora', 'Constructora',             'Fiabilidad, experiencia y track record',       0.15, 3),
-  ('entrega',      'Entrega',                  'Fecha y meses de espera',                     0.15, 4),
-  ('precio_m2',    'Precio por m²',            'vs promedio del sector',                      0.10, 5),
-  ('calidad',      'Calidad',                  'Materiales y amenidades del edificio',        0.07, 6),
-  ('confianza',    'Factor confianza',         'Sensación subjetiva del proyecto/vendedor',   0.03, 7);
+  ('roi',           'Rentabilidad (ROI)',       'ROI anual proyectado',                        0.30, 1),
+  ('ubicacion',     'Ubicación',                'Sector, piso y orientación',                  0.20, 2),
+  ('constructora',  'Constructora',             'Fiabilidad, experiencia y track record',       0.15, 3),
+  ('entrega',       'Entrega',                  'Fecha y meses de espera',                     0.15, 4),
+  ('equipamiento',  'Equipamiento',             'Parqueadero y bodega de la unidad',           0.07, 5),
+  ('precio_m2',     'Precio por m²',            'vs promedio del sector',                      0.03, 6),
+  ('calidad',       'Calidad',                  'Materiales y amenidades del edificio',        0.07, 7),
+  ('confianza',     'Factor confianza',         'Sensación subjetiva del proyecto/vendedor',   0.03, 8);
 ```
 
 > **Importante:** Cuando el usuario edite los pesos, el sistema valida que sumen 1.00
@@ -270,6 +271,10 @@ create table proyectos (
   -- Amoblamiento
   viene_amoblado        boolean default false,   -- si true, costo_amoblado = 0
   costo_amoblado        numeric,                 -- si null, toma costo_amoblado_default de configuracion
+  -- Préstamo de amoblado (cuando no se puede pagar en efectivo al momento de la entrega)
+  amoblado_financiado        boolean default false,  -- si true, modela el amoblado como préstamo personal
+  tasa_prestamo_amoblado     numeric default 12,     -- tasa anual del préstamo (%)
+  meses_prestamo_amoblado    integer default 24,     -- plazo del préstamo en meses
 
   -- Airbnb: gestión y restricciones
   permite_airbnb        boolean default true,    -- si false → alerta roja automática (reglamento lo prohíbe)
@@ -317,6 +322,7 @@ create table proyectos (
   score_ubicacion     numeric,
   score_constructora  numeric,
   score_entrega       numeric,
+  score_equipamiento  numeric,   -- parqueadero + bodega (criterio #5, peso 0.07)
   score_precio_m2     numeric,
   score_calidad       numeric,
   score_confianza     numeric,
@@ -422,6 +428,13 @@ cuota_construccion       = num_cuotas > 0 ? monto_durante_total / num_cuotas : 0
 // 1b. Amoblamiento
 costo_amoblado_efectivo = viene_amoblado ? 0 : (costo_amoblado ?? costo_amoblado_default)
 
+// 1c. Préstamo de amoblado (si amoblado_financiado=true y viene_amoblado=false)
+// Modela el caso en que no se tiene el efectivo disponible al momento de la entrega.
+// Usa PMT estándar igual que el crédito hipotecario.
+cuota_prestamo_amoblado     = PMT(tasa_prestamo_amoblado/12, meses_prestamo_amoblado, costo_amoblado_efectivo)
+intereses_prestamo_amoblado = (cuota × meses) - costo_amoblado_efectivo
+// Si amoblado_financiado=false → cuota=0, intereses=0 (sin efecto)
+
 // 2. Cuota mensual bancaria (fórmula PMT estándar, sobre la contra entrega)
 tasa_mensual  = tasa_anual / 100 / 12
 meses_credito = anos_credito * 12
@@ -439,19 +452,20 @@ ingreso_bruto_mensual = precio_noche_estimado * 30 * (ocupacion_estimada / 100)
 gastos_operativos     = ingreso_bruto_mensual * (pct_gastos_efectivo / 100)
 ingreso_neto_mensual  = ingreso_bruto_mensual - gastos_operativos
 
-// 4. Flujo mensual (alicuota se descuenta siempre, independiente de Airbnb)
+// 4. Flujo mensual (alícuota + cuota banco + cuota préstamo amoblado si aplica) (alicuota se descuenta siempre, independiente de Airbnb)
 sueldo_disponible    = sueldo_neto * (porcentaje_ahorro / 100)
-flujo_sin_airbnb     = sueldo_disponible - cuota_mensual - alicuota_mensual
-flujo_con_airbnb     = sueldo_disponible + ingreso_neto_mensual - cuota_mensual - alicuota_mensual
-cobertura_sin_airbnb = (sueldo_disponible / (cuota_mensual + alicuota_mensual)) * 100
-cobertura_con_airbnb = ((sueldo_disponible + ingreso_neto_mensual) / (cuota_mensual + alicuota_mensual)) * 100
+flujo_sin_airbnb     = sueldo_disponible - cuota_mensual - alicuota_mensual - cuota_prestamo_amoblado
+flujo_con_airbnb     = sueldo_disponible + ingreso_neto_mensual - cuota_mensual - alicuota_mensual - cuota_prestamo_amoblado
+obligacion_mensual   = cuota_mensual + alicuota_mensual + cuota_prestamo_amoblado
+cobertura_sin_airbnb = (sueldo_disponible / obligacion_mensual) * 100
+cobertura_con_airbnb = ((sueldo_disponible + ingreso_neto_mensual) / obligacion_mensual) * 100
 
 // 5. Proyección a N años
 meses_productivos    = (anos_proyeccion * 12) - meses_espera
 airbnb_acumulado     = ingreso_neto_mensual * meses_productivos
 plusvalia_acumulada  = precio_base * ((1 + plusvalia_anual/100)^anos_proyeccion - 1)
 ganancia_bruta       = plusvalia_acumulada + airbnb_acumulado
-ganancia_neta        = ganancia_bruta - total_intereses
+ganancia_neta        = ganancia_bruta - total_intereses - intereses_prestamo_amoblado
 
 // 6. ROI
 // aporte_propio = todo el dinero propio antes de operar (sin doble contar la reserva)
@@ -483,6 +497,8 @@ score_constructora → fiabilidad: reputada=80 | conocida_sin_retrasos=60 |
                      + bonus proyectos entregados (>10: +5pts)
                      + bonus reconocimientos (+5pts si tiene)
 score_entrega      → inverso de meses_espera (0 meses=100, 48+ meses=0)
+score_equipamiento → parqueadero=+50, bodega=+30, ambos=+20 bonus (máx 100)
+                     Refleja el valor diferencial de la unidad para Airbnb y reventa.
 score_precio_m2    → inverso normalizado sobre area_interna_m2 (NO el área total con balcón)
 score_calidad      → materiales (lujo=40, premium=30, estándar=20, básico=10)
                      + bonus amenidades premium (spa/piscina: +15, gimnasio: +8,
@@ -821,16 +837,41 @@ Hacer siempre al final de cada fase, en este orden:
 - [ ] Long-press 1 seg en 👁 → también activa/desactiva
 - [ ] Botón 👁 nuevamente → vuelven los números reales
 
-**Fase 4 — Dashboard** *(completar al implementar)*
-- [ ] Tabla de ranking ordena por score_total descendente
-- [ ] Filtros de tipo, sector y preferencia funcionan
-- [ ] Toggle "Solo primera opción" filtra correctamente
-- [ ] Semáforos de ROI y cobertura muestran el color correcto
+**Fase 4 — Dashboard**
+- [ ] `/` carga la tabla de ranking con los proyectos ingresados
+- [ ] Tabla ordenada por score_total descendente (mayor score arriba)
+- [ ] ScoreBar muestra barra verde/amarilla/roja según score
+- [ ] Semáforos de ROI y cobertura muestran color correcto (verde/amarillo/rojo)
+- [ ] Badge "¡Últimas!" (rojo) en filas con unidades_disponibles ≤ 3
+- [ ] Badge "Pocas" (naranja) en filas con unidades_disponibles ≤ 10
+- [ ] Badge "?" en filas con unidades_disponibles = null
+- [ ] Símbolo ★ junto al nombre en proyectos con preferencia = 'primera_opcion'
+- [ ] Panel resumen: "Mejor score", "Mejor ROI" y "Urgencia" muestran la unidad correcta
+- [ ] Toggle "★ Primera opción" oculta los proyectos sin esa preferencia
+- [ ] Toggle "Mejor / proyecto" colapsa varias unidades del mismo proyecto a la de mayor score
+- [ ] Filtro por tipo filtra correctamente
+- [ ] Filtro por sector filtra correctamente
+- [ ] "Top 5" y "Top 10" limitan la tabla
+- [ ] Filtro "Descartados" muestra solo proyectos con estado=descartado
+- [ ] Modo privacidad: botón 👁 → los precios y cuotas muestran "••••"
+- [ ] Hover sobre una fila → aparece enlace "Ver →" (futuro Fase 5)
 
-**Fase 5 — Detalle** *(completar al implementar)*
-- [ ] Vista de detalle muestra todas las métricas financieras
-- [ ] Botón "Analizar con IA" genera análisis narrativo
-- [ ] Upload de adjuntos sube al bucket de Supabase Storage
+**Fase 4.a — Privacidad en Configuración**
+- [ ] Botón 👁 activo → ir a `/configuracion` → todos los campos muestran "••••"
+- [ ] Con campos enmascarados → "Guardar configuración" → guarda los valores reales sin error
+- [ ] Desactivar 👁 → los campos vuelven a mostrar los valores reales
+
+**Fase 5 — Detalle**
+- [x] `/proyecto/[id]` carga con tabs Resumen / Editar / Adjuntos / IA
+- [x] Tab Resumen muestra todas las métricas financieras y desglose de scoring (7 barras)
+- [x] Botón "Recalcular esta unidad" recalcula solo esa fila
+- [x] Tab Editar: formulario completo (~50 campos) organizado en secciones con defaults de config en placeholders
+- [x] Botón "Eliminar unidad" → confirm → redirect a ranking
+- [x] Botón WhatsApp junto al teléfono del contacto
+- [x] Botón "Analizar con IA" genera análisis narrativo (fortaleza, riesgo, recomendación, alerta)
+- [x] Sección "Qué preguntar al vendedor" con lista de preguntas y datos faltantes
+- [x] Upload de adjuntos sube al bucket Supabase Storage con URL firmada (24h)
+- [x] Hints de ayuda en formulario de edición y en FormularioRapido
 
 **Fase 6 — Comparador** *(completar al implementar)*
 - [ ] Seleccionar 2-3 proyectos y ver tabla lado a lado
@@ -952,7 +993,7 @@ Los tres métodos de ingreso rápido se muestran como tabs en `/nuevo`:
 > Las funciones son puras (input → number), los valores esperados se verifican a mano.
 
 ```
-lib/__tests__/calculos.test.ts
+lib/__tests__/calculos.test.ts  (11 tests)
   ✓ precio_m2 usa area_interna_m2, nunca area_total_m2
   ✓ reserva=null → reserva_efectiva = reserva_default ($2,000)
   ✓ reserva=0 → pago_entrada_neto = monto_entrada_total (sin descuento)
@@ -960,11 +1001,15 @@ lib/__tests__/calculos.test.ts
   ✓ pct_durante=0 → cuota_construccion = 0
   ✓ pct_entrada + pct_durante + pct_contra = 100 (validación)
   ✓ viene_amoblado=true → costo_amoblado_efectivo = 0
+  ✓ amoblado_financiado=false → cuota_prestamo_amoblado = 0, intereses = 0
+  ✓ amoblado_financiado=true → genera cuota e intereses que reducen ganancia_neta y flujo
+  ✓ amoblado_financiado=true + viene_amoblado=true → sin préstamo (no hay costo)
   ✓ aporte_propio_total no cuenta la reserva dos veces
 
-lib/__tests__/scoring.test.ts
+lib/__tests__/scoring.test.ts  (6 tests)
   ✓ permite_airbnb=false → score_total = 0 (regla absoluta)
-  ✓ score_total = suma ponderada correcta con pesos de ejemplo
+  ✓ score_total = suma ponderada correcta con 8 criterios
+  ✓ score_equipamiento: ninguno=0, solo parqueadero=50, solo bodega=30, ambos=100
   ✓ score_constructora: reputada=80, con_retrasos=20
   ✓ score_entrega: 0 meses=100, 48+ meses=0
   ✓ score_confianza: confianza_subjetiva × 20
@@ -1000,34 +1045,89 @@ lib/__tests__/scoring.test.ts
 - [ ] `/configuracion` → aparece botón "Sectores →" junto a "Pesos del scoring →"
 - [ ] `npm run test` → 13/13 en verde
 
-### Fase 4 — Dashboard y Ranking
+### Fase 4 — Dashboard y Ranking ✅ COMPLETADA (2026-03-31)
 
 **Panel resumen** (encabezado del dashboard, 3 tarjetas):
-- [ ] "Mejor score" → nombre+tipo + score_total + ROI de la unidad líder
-- [ ] "Mejor ROI" → puede ser distinta unidad (nombre+tipo + roi_anual)
-- [ ] "Urgencia" → unidad con unidades_disponibles más bajas (si hay ≤10), con badge rojo/naranja
+- [x] "Mejor score" → nombre+tipo + score_total + ROI de la unidad líder
+- [x] "Mejor ROI" → puede ser distinta unidad (nombre+tipo + roi_anual)
+- [x] "Urgencia" → unidad con unidades_disponibles más bajas (si hay ≤10), con badge rojo/naranja
 
 **Tabla de ranking:**
-- [ ] Filas ordenadas por score_total descendente
-- [ ] Score visual (ScoreBar) + semáforos ROI y cobertura por fila
-- [ ] Badge de escasez por fila (≤3 rojo, ≤10 naranja, null = "?")
-- [ ] Badge de preferencia por fila (★ primera opción, gris alternativa)
+- [x] Filas ordenadas por score_total descendente
+- [x] Score visual (ScoreBar) + semáforos ROI y cobertura por fila
+- [x] Badge de escasez por fila (≤3 rojo, ≤10 naranja, null = "?")
+- [x] Badge de preferencia por fila (★ primera opción, gris alternativa)
 
 **Filtros y vistas:**
-- [ ] Toggle "Solo primera opción" — filtra a `preferencia = 'primera_opcion'`
-- [ ] Toggle "Mejor de cada proyecto" — agrupa por nombre del proyecto, muestra solo la unidad de mayor score_total por grupo; pasa de ver N unidades a ver N proyectos
-- [ ] Filtro por tipo (`estudio / suite / minisuite / 1 dorm / 2 dorm`)
-- [ ] Filtro por sector
-- [ ] Filtro "Top N" (mostrar solo los 5 o 10 mejores)
-- [ ] Filtro por estado (activos / descartados / todos)
+- [x] Toggle "Solo primera opción" — filtra a `preferencia = 'primera_opcion'`
+- [x] Toggle "Mejor de cada proyecto" — agrupa por nombre del proyecto, muestra solo la unidad de mayor score_total por grupo; pasa de ver N unidades a ver N proyectos
+- [x] Filtro por tipo (`estudio / suite / minisuite / 1 dorm / 2 dorm`)
+- [x] Filtro por sector
+- [x] Filtro "Top N" (mostrar solo los 5 o 10 mejores)
+- [x] Filtro por estado (activos / descartados / todos)
+
+#### Fase 4.a — Privacidad en Configuración Global ✅ COMPLETADA (2026-03-31)
+- [x] `ConfiguracionForm.tsx` lee `usePrivacy()` y pasa `privacyMode` a cada campo
+- [x] `CampoNumerico` y `CampoTexto`: cuando `privacyMode=true` → muestra `••••` visual
+      + mantiene `<input type="hidden">` con el valor real para que el form siga guardando
+- [x] Cubre los 13 campos del formulario: sueldo, % ahorro, gastos Airbnb, banco, tasa,
+      años crédito, años proyección, costo amoblado, reserva, % entrada, % durante,
+      cuotas construcción, % contra entrega
+
+#### Alcance ampliado Fase 4 (2026-03-31) ✅ COMPLETADO
+- [x] `fecha_entrega` cambiado de `text` a `date` — `meses_espera` se calcula automáticamente
+      desde la fecha (Math.round de días / 30.44); si no hay fecha, se acepta ingreso manual de meses
+- [x] `recalcularUnidad` también recalcula `meses_espera` desde `fecha_entrega` cuando existe,
+      para que los meses no queden "vencidos" con el tiempo
+- [x] Columna `plusvalia_anual_estimada numeric DEFAULT 5` añadida a `sectores_scoring`
+      con valores reales del CSV por cada sector (González Suárez 6.5%, La Carolina 6.0%, etc.)
+      → al crear un proyecto se copia automáticamente a `proyectos.plusvalia_anual`
+- [x] Valores por defecto de config se copian al registro al crear (ya no quedan null):
+      `reserva`, `porcentaje_entrada`, `porcentaje_durante_construccion`,
+      `num_cuotas_construccion`, `porcentaje_contra_entrega`, `tasa_anual`,
+      `anos_credito`, `banco`, `costo_amoblado`
+- [x] Sub-tabs dentro del formulario "Editar" en `/proyecto/[id]`:
+      **Identificación** | **Unidad** | **Pago** | **Airbnb**
+      Todas las secciones siguen en el DOM (con `hidden`) para que el guardado incluya todos los campos
+- [x] `/configuracion/sectores` muestra y permite editar `plusvalia_anual_estimada` por sector
 
 ### Fase 5 — Detalle de Unidad
-- [ ] Vista completa de métricas financieras de esta unidad
-- [ ] Desglose de scoring por criterio (barra por cada uno de los 7)
-- [ ] Botón "Recalcular esta unidad" → recalcula métricas y scores solo de esta fila
-- [ ] Panel de adjuntos (upload + listado)
-- [ ] Botón "Analizar con IA" → genera análisis narrativo (fortaleza, riesgo, recomendación)
-- [ ] Sección "Qué preguntar al vendedor" (generado por IA o desde `datos_faltantes`)
+
+#### Alcance inicial (2026-03-31)
+- [x] Vista completa de métricas financieras de esta unidad (tabs: Resumen, Editar, Adjuntos, IA)
+- [x] Formulario de edición con todos los ~50 campos del modelo, organizado en secciones
+- [x] Desglose de scoring por criterio (ScoreBar por cada uno de los 7, con peso y contribución)
+- [x] Botón "↻ Recalcular esta unidad" → recalcula métricas y scores solo de esta fila
+- [x] Panel de adjuntos (upload a Supabase Storage + listado + eliminar, con URLs firmadas 24h)
+- [x] Botón "Analizar con IA" → llama a Claude API → guarda fortaleza, riesgo, recomendación, alerta
+- [x] Sección "Qué preguntar al vendedor" (desde `que_preguntar[]` y `datos_faltantes[]`)
+
+#### Alcance ampliado (2026-03-31) ✅ COMPLETADO
+- [x] Botón "Eliminar unidad" en el header → confirm → DELETE cascade (Storage + DB) → redirect a `/`
+- [x] Placeholders en formulario de edición muestran el valor efectivo del default de config
+      cuando el campo está vacío (ej: "vacío = usa config (10%)")
+      → `page.tsx` fetcha `configuracion` y la pasa como prop a `DetalleProyecto`
+- [x] Sección "Contacto" en Tab Resumen: muestra nombre y teléfono del vendedor
+- [x] Botón WhatsApp junto a `contacto_telefono` en Resumen y Editar
+      → abre `https://wa.me/+593{telefono}` (limpia no-dígitos, quita 0 inicial, agrega 593)
+- [x] Hints de ayuda en formulario de edición (texto descriptivo debajo de campos clave:
+      área interna vs balcón, pago, financiamiento, Airbnb, permite_airbnb, avance obra)
+- [x] Hints de ayuda en FormularioRapido (`/nuevo`) en los 8 campos del modo rápido
+- [x] Bug fix: `redirect` en `eliminarProyecto` como import estático (tipo `never` requerido por TS)
+
+#### Mejoras al motor de negocio (2026-04-01) ✅ COMPLETADO
+- [x] **Nuevo criterio Equipamiento** (parqueadero + bodega) — 8º criterio, peso 0.07, orden 5
+      score_equipamiento: parqueadero=50, bodega=30, ambos=100 (bonus combo +20)
+      SQL: `supabase/fase5_equipamiento_amoblado.sql`
+      Precio m² baja de 0.10 → 0.03 para mantener suma=1.00
+- [x] **Préstamo de amoblado** — regla de negocio central
+      Campos: `amoblado_financiado`, `tasa_prestamo_amoblado`, `meses_prestamo_amoblado`
+      La cuota reduce flujo mensual + cobertura; los intereses reducen ganancia_neta → ROI baja orgánicamente
+      UI: checkbox con campos condicionales (tasa/plazo aparecen al activar)
+- [x] 17/17 tests Vitest en verde (11 calculos + 6 scoring)
+- [ ] **PENDIENTE:** Reemplazar normalización min-max de ROI por escala absoluta de mercado
+      `score_roi = min(100, (roi_anual / 16) * 100)` — fix urgente, con pocos proyectos el mínimo
+      siempre recibe 0 aunque su ROI sea sólido (ver LEARNINGS post-Fase 5)
 
 ### Fase 6 — Comparador
 - [ ] Seleccionar 2-3 proyectos para comparar
@@ -1047,6 +1147,12 @@ lib/__tests__/scoring.test.ts
 - [ ] Al ingresar una unidad: lat/lng se obtiene con click derecho en Google Maps → "Copiar coordenadas"
 
 ### Nice-to-have (post-MVP)
+- [ ] **Calculadora bidireccional de porcentajes de pago** — en el formulario de edición, al modificar
+      `% Entrada`, `% Durante` o `% Contra entrega`, recalcular los otros para que siempre sumen 100%.
+      Incluir indicador visual verde/rojo (igual al de pesos de scoring) mostrando la suma actual.
+- [ ] **Preview inline de adjuntos** — en el panel de adjuntos, al hacer clic en "Ver" abrir un modal
+      ligero dentro de la app: imágenes con `<img>`, PDFs con `<iframe>` o `<embed>`.
+      No requiere librería externa (nativo del browser). Usar la URL firmada de 24h ya generada.
 - [ ] **Inactivity timer en /configuracion/*** — Opción C de seguridad: re-lock automático si el usuario lleva
       más de N minutos sin actividad dentro de la sección de config (complemento de la Opción A ya implementada).
       Implementar junto con el inactivity lock global de Fase de Seguridad Avanzada.
