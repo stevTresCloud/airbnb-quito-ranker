@@ -203,6 +203,19 @@ const SCORE_KEY_MAP: Record<string, keyof ProyectoDetalle> = {
   confianza:     'score_confianza',
 }
 
+// ─── Explicaciones de cada criterio de scoring ───────────────────────────────
+// Texto educativo que se muestra al expandir un criterio en el desglose.
+const CRITERIO_INFO: Record<string, string> = {
+  roi:          'ROI anual proyectado a 5 años sobre el precio total. Escala absoluta: 16% = 100 pts (no se penaliza al más barato del ranking). Incluye plusvalía + Airbnb acumulado menos intereses.',
+  ubicacion:    'Score base del sector (Quicentro=95 … Otro=60) + bonus piso alto (≥8: +5, ≥12: +10) + bonus orientación norte/este (+5). Refleja la demanda Airbnb del inmueble.',
+  constructora: 'Fiabilidad: reputada=80, sin retrasos=60, desconocida=40, con retrasos=20. Bonus por años de experiencia (>20: +10, >10: +5), proyectos entregados (>10: +5) y reconocimientos (+5).',
+  entrega:      'Inverso de meses de espera hasta la entrega del inmueble. 0 meses=100 pts; 48+ meses=0 pts. Penaliza proyectos lejanos en el tiempo (más riesgo, más tiempo sin generar ingresos).',
+  equipamiento: 'Valor diferencial de la unidad para Airbnb y reventa: parqueadero (+50 pts) + bodega (+30 pts) + bonus por tener ambos (+20 pts). Sin ninguno = 0 pts.',
+  precio_m2:    'Precio por m² calculado sobre el área interna (sin balcón). Se normaliza contra los otros proyectos del ranking — más barato relativo a los demás = más puntos.',
+  calidad:      'Materiales (lujo=40, premium=30, estándar=20, básico=10) + amenidades del edificio (spa/piscina: +15, gym: +8, coworking: +7…) + extras de la unidad (balcón, cocina americana, baños). Penaliza edificios grandes (>60 unidades) y con poco avance de obra (<30%).',
+  confianza:    'Evaluación subjetiva tuya del proyecto y el vendedor (1 a 5 estrellas → 20 a 100 pts). Captura la intuición y la transparencia que no están en los números duros.',
+}
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 type Tab = 'resumen' | 'editar' | 'adjuntos' | 'ia'
 
@@ -349,6 +362,13 @@ export function DetalleProyecto({ proyecto, criterios, adjuntos, config, sectore
 // TAB: RESUMEN
 // ═══════════════════════════════════════════════════════════════════════════════
 function TabResumen({ proyecto: p, criterios }: { proyecto: ProyectoDetalle; criterios: CriterioRow[] }) {
+  // Clave del criterio cuya explicación está expandida (null = ninguna)
+  const [criterioExpandido, setCriterioExpandido] = useState<string | null>(null)
+
+  function toggleExplicacion(clave: string) {
+    setCriterioExpandido(prev => prev === clave ? null : clave)
+  }
+
   return (
     <div className="space-y-6">
 
@@ -469,10 +489,29 @@ function TabResumen({ proyecto: p, criterios }: { proyecto: ProyectoDetalle; cri
                 const scoreKey = SCORE_KEY_MAP[c.clave] as keyof ProyectoDetalle
                 const scoreVal = p[scoreKey] as number | null
                 const contribucion = scoreVal !== null ? scoreVal * c.peso : null
+                const explicacion = CRITERIO_INFO[c.clave]
+                const expandido = criterioExpandido === c.clave
                 return (
                   <div key={c.clave} className="px-4 py-3 border-b border-zinc-800 last:border-0">
                     <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-sm text-zinc-300">{c.nombre}</span>
+                      {/* Nombre + botón ? para expandir explicación */}
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm text-zinc-300">{c.nombre}</span>
+                        {explicacion && (
+                          <button
+                            onClick={() => toggleExplicacion(c.clave)}
+                            title={expandido ? 'Ocultar explicación' : 'Ver cómo se calcula'}
+                            className={`w-4 h-4 rounded-full text-[10px] font-bold leading-none
+                                        flex items-center justify-center transition-colors
+                                        ${expandido
+                                          ? 'bg-zinc-600 text-zinc-200'
+                                          : 'bg-zinc-800 text-zinc-500 hover:bg-zinc-700 hover:text-zinc-300'
+                                        }`}
+                          >
+                            ?
+                          </button>
+                        )}
+                      </div>
                       <div className="flex items-center gap-3 text-xs text-zinc-500">
                         <span>peso {Math.round(c.peso * 100)}%</span>
                         {contribucion !== null && (
@@ -483,6 +522,12 @@ function TabResumen({ proyecto: p, criterios }: { proyecto: ProyectoDetalle; cri
                       </div>
                     </div>
                     <ScoreBar score={scoreVal} mostrarNumero />
+                    {/* Explicación expandible */}
+                    {expandido && explicacion && (
+                      <p className="mt-2 text-xs text-zinc-400 leading-relaxed border-t border-zinc-800 pt-2">
+                        {explicacion}
+                      </p>
+                    )}
                   </div>
                 )
               })}

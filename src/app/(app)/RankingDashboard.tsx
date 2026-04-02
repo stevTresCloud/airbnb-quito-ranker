@@ -8,7 +8,7 @@
 //   y filtra/ordena en el cliente — sin peticiones adicionales al servidor.
 //   Para una app personal con ~20 proyectos, esto es más simple y rápido.
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -67,6 +67,22 @@ export type ProyectoRanking = {
 
 interface Props {
   proyectos: ProyectoRanking[]
+}
+
+// ─── Tipos para ordenamiento y visibilidad de columnas ────────────────────────
+
+// Columnas por las que se puede ordenar
+type SortKey = 'score_total' | 'roi_anual' | 'cobertura_con_airbnb' | 'precio_base' | 'cuota_mensual'
+type SortDir = 'asc' | 'desc'
+
+// Columnas opcionales que el usuario puede mostrar u ocultar
+type ColId = 'cobertura' | 'precio' | 'cuota' | 'sector'
+const COLS_DEFAULT: ColId[] = ['cobertura', 'precio', 'cuota', 'sector']
+const COL_LABELS: Record<ColId, string> = {
+  cobertura: 'Cobertura',
+  precio:    'Precio',
+  cuota:     'Cuota/mes',
+  sector:    'Sector',
 }
 
 // ─── Helpers de badge ─────────────────────────────────────────────────────────
@@ -318,15 +334,126 @@ function BarraFiltros({
   )
 }
 
+// ─── Encabezado de columna ordenable ──────────────────────────────────────────
+// Muestra ↓ (desc), ↑ (asc), o ↕ (sin ordenar) según el estado actual.
+
+function ThOrdenable({
+  label,
+  sortK,
+  currentKey,
+  currentDir,
+  onSort,
+  className,
+}: {
+  label: string
+  sortK: SortKey
+  currentKey: SortKey
+  currentDir: SortDir
+  onSort: (k: SortKey) => void
+  className?: string
+}) {
+  const activo = currentKey === sortK
+  return (
+    <th
+      onClick={() => onSort(sortK)}
+      className={`text-left px-4 py-3 text-xs font-medium uppercase tracking-wide
+                  cursor-pointer select-none transition-colors
+                  ${activo ? 'text-zinc-300' : 'text-zinc-500 hover:text-zinc-300'}
+                  ${className ?? ''}`}
+    >
+      {label}
+      <span className="ml-1 font-normal">
+        {activo ? (currentDir === 'desc' ? '↓' : '↑') : '↕'}
+      </span>
+    </th>
+  )
+}
+
+// ─── Selector de columnas ─────────────────────────────────────────────────────
+// Dropdown con checkboxes para mostrar/ocultar columnas opcionales.
+// Usa onBlur en el contenedor para cerrar al perder el foco — sin librería externa.
+
+function SelectorColumnas({
+  colsVisibles,
+  onToggle,
+}: {
+  colsVisibles: Set<ColId>
+  onToggle: (col: ColId) => void
+}) {
+  const [abierto, setAbierto] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  // Cierra el menú al hacer click fuera del contenedor
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setAbierto(false)
+      }
+    }
+    if (abierto) document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [abierto])
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setAbierto(v => !v)}
+        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${
+          abierto
+            ? 'bg-zinc-700 text-zinc-100 border-zinc-600'
+            : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200'
+        }`}
+      >
+        ⚙ Columnas
+      </button>
+
+      {abierto && (
+        <div className="absolute right-0 top-full mt-1 z-20 bg-zinc-900 border border-zinc-700
+                        rounded-lg shadow-xl p-2 min-w-[160px]">
+          {(Object.entries(COL_LABELS) as [ColId, string][]).map(([id, label]) => (
+            <label
+              key={id}
+              className="flex items-center gap-2.5 px-2 py-1.5 rounded cursor-pointer
+                         hover:bg-zinc-800 transition-colors"
+            >
+              <input
+                type="checkbox"
+                checked={colsVisibles.has(id)}
+                onChange={() => onToggle(id)}
+                className="w-3.5 h-3.5 rounded accent-emerald-500 cursor-pointer"
+              />
+              <span className="text-xs text-zinc-300">{label}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Tabla de ranking ─────────────────────────────────────────────────────────
 
 interface TablaRankingProps {
   proyectos: ProyectoRanking[]
   seleccionados: Set<string>
   onToggle: (id: string) => void
+  sortKey: SortKey
+  sortDir: SortDir
+  onSort: (k: SortKey) => void
+  colsVisibles: Set<ColId>
+  onToggleCol: (col: ColId) => void
 }
 
-function TablaRanking({ proyectos, seleccionados, onToggle }: TablaRankingProps) {
+function TablaRanking({
+  proyectos,
+  seleccionados,
+  onToggle,
+  sortKey,
+  sortDir,
+  onSort,
+  colsVisibles,
+  onToggleCol,
+}: TablaRankingProps) {
   if (proyectos.length === 0) {
     return (
       <div className="text-center py-16 text-zinc-600">
@@ -342,53 +469,93 @@ function TablaRanking({ proyectos, seleccionados, onToggle }: TablaRankingProps)
   const maxSeleccion = seleccionados.size >= 3
 
   return (
-    // Tabla con scroll horizontal en móvil (overflow-x-auto)
-    <div className="overflow-x-auto rounded-xl border border-zinc-800">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-zinc-800 bg-zinc-900/60">
-            {/* Columna checkbox */}
-            <th className="px-3 py-3 w-8" />
-            <th className="text-left px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wide w-6">
-              #
-            </th>
-            <th className="text-left px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wide min-w-[180px]">
-              Unidad
-            </th>
-            <th className="text-left px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wide min-w-[160px]">
-              Score
-            </th>
-            <th className="text-left px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wide">
-              ROI
-            </th>
-            <th className="text-left px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wide hidden sm:table-cell">
-              Cobertura
-            </th>
-            <th className="text-right px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wide hidden md:table-cell">
-              Precio
-            </th>
-            <th className="text-right px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wide hidden md:table-cell">
-              Cuota/mes
-            </th>
-            <th className="text-left px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wide hidden lg:table-cell">
-              Sector
-            </th>
-            <th className="px-4 py-3" />
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-zinc-800/60">
-          {proyectos.map((p, idx) => (
-            <FilaRanking
-              key={p.id}
-              proyecto={p}
-              posicion={idx + 1}
-              seleccionado={seleccionados.has(p.id)}
-              deshabilitado={maxSeleccion && !seleccionados.has(p.id)}
-              onToggle={onToggle}
-            />
-          ))}
-        </tbody>
-      </table>
+    <div>
+      {/* Barra de control de la tabla: selector de columnas */}
+      <div className="flex justify-end mb-2">
+        <SelectorColumnas colsVisibles={colsVisibles} onToggle={onToggleCol} />
+      </div>
+
+      {/* Tabla con scroll horizontal en móvil (overflow-x-auto) */}
+      <div className="overflow-x-auto rounded-xl border border-zinc-800">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-zinc-800 bg-zinc-900/60">
+              {/* Columna checkbox */}
+              <th className="px-3 py-3 w-8" />
+              <th className="text-left px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wide w-6">
+                #
+              </th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wide min-w-[180px]">
+                Unidad
+              </th>
+              <ThOrdenable
+                label="Score"
+                sortK="score_total"
+                currentKey={sortKey}
+                currentDir={sortDir}
+                onSort={onSort}
+                className="min-w-[160px]"
+              />
+              <ThOrdenable
+                label="ROI"
+                sortK="roi_anual"
+                currentKey={sortKey}
+                currentDir={sortDir}
+                onSort={onSort}
+              />
+              {colsVisibles.has('cobertura') && (
+                <ThOrdenable
+                  label="Cobertura"
+                  sortK="cobertura_con_airbnb"
+                  currentKey={sortKey}
+                  currentDir={sortDir}
+                  onSort={onSort}
+                  className="hidden sm:table-cell"
+                />
+              )}
+              {colsVisibles.has('precio') && (
+                <ThOrdenable
+                  label="Precio"
+                  sortK="precio_base"
+                  currentKey={sortKey}
+                  currentDir={sortDir}
+                  onSort={onSort}
+                  className="hidden md:table-cell text-right"
+                />
+              )}
+              {colsVisibles.has('cuota') && (
+                <ThOrdenable
+                  label="Cuota/mes"
+                  sortK="cuota_mensual"
+                  currentKey={sortKey}
+                  currentDir={sortDir}
+                  onSort={onSort}
+                  className="hidden md:table-cell text-right"
+                />
+              )}
+              {colsVisibles.has('sector') && (
+                <th className="text-left px-4 py-3 text-xs font-medium text-zinc-500 uppercase tracking-wide hidden lg:table-cell">
+                  Sector
+                </th>
+              )}
+              <th className="px-4 py-3" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-800/60">
+            {proyectos.map((p, idx) => (
+              <FilaRanking
+                key={p.id}
+                proyecto={p}
+                posicion={idx + 1}
+                seleccionado={seleccionados.has(p.id)}
+                deshabilitado={maxSeleccion && !seleccionados.has(p.id)}
+                onToggle={onToggle}
+                colsVisibles={colsVisibles}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
@@ -401,9 +568,10 @@ interface FilaRankingProps {
   seleccionado: boolean
   deshabilitado: boolean
   onToggle: (id: string) => void
+  colsVisibles: Set<ColId>
 }
 
-function FilaRanking({ proyecto: p, posicion, seleccionado, deshabilitado, onToggle }: FilaRankingProps) {
+function FilaRanking({ proyecto: p, posicion, seleccionado, deshabilitado, onToggle, colsVisibles }: FilaRankingProps) {
   const descartado = p.estado === 'descartado'
 
   return (
@@ -467,39 +635,47 @@ function FilaRanking({ proyecto: p, posicion, seleccionado, deshabilitado, onTog
         <SemaforoROI tipo="roi" valor={p.roi_anual} />
       </td>
 
-      {/* Cobertura con Airbnb (oculta en móvil) */}
-      <td className="px-4 py-3 hidden sm:table-cell">
-        <SemaforoROI tipo="cobertura" valor={p.cobertura_con_airbnb} />
-      </td>
+      {/* Cobertura con Airbnb */}
+      {colsVisibles.has('cobertura') && (
+        <td className="px-4 py-3 hidden sm:table-cell">
+          <SemaforoROI tipo="cobertura" valor={p.cobertura_con_airbnb} />
+        </td>
+      )}
 
-      {/* Precio base (oculto en pantallas pequeñas) */}
-      <td className="px-4 py-3 text-right hidden md:table-cell">
-        <MontoPrivado
-          valor={p.precio_base}
-          prefijo="$"
-          decimales={0}
-          className="text-xs text-zinc-300"
-        />
-      </td>
-
-      {/* Cuota mensual (oculto en pantallas pequeñas) */}
-      <td className="px-4 py-3 text-right hidden md:table-cell">
-        {p.cuota_mensual !== null ? (
+      {/* Precio base */}
+      {colsVisibles.has('precio') && (
+        <td className="px-4 py-3 text-right hidden md:table-cell">
           <MontoPrivado
-            valor={p.cuota_mensual}
+            valor={p.precio_base}
             prefijo="$"
             decimales={0}
             className="text-xs text-zinc-300"
           />
-        ) : (
-          <span className="text-xs text-zinc-600">—</span>
-        )}
-      </td>
+        </td>
+      )}
 
-      {/* Sector (oculto en pantallas medianas) */}
-      <td className="px-4 py-3 hidden lg:table-cell">
-        <span className="text-xs text-zinc-500">{p.sector}</span>
-      </td>
+      {/* Cuota mensual */}
+      {colsVisibles.has('cuota') && (
+        <td className="px-4 py-3 text-right hidden md:table-cell">
+          {p.cuota_mensual !== null ? (
+            <MontoPrivado
+              valor={p.cuota_mensual}
+              prefijo="$"
+              decimales={0}
+              className="text-xs text-zinc-300"
+            />
+          ) : (
+            <span className="text-xs text-zinc-600">—</span>
+          )}
+        </td>
+      )}
+
+      {/* Sector */}
+      {colsVisibles.has('sector') && (
+        <td className="px-4 py-3 hidden lg:table-cell">
+          <span className="text-xs text-zinc-500">{p.sector}</span>
+        </td>
+      )}
 
       {/* Botón ver detalle — stopPropagation para que no active el toggle */}
       <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
@@ -522,7 +698,20 @@ export default function RankingDashboard({ proyectos }: Props) {
   const [vista, setVista] = useState<'lista' | 'mapa'>('lista')
   // Set de ids seleccionados para comparar (máx 3)
   const [seleccionados, setSeleccionados] = useState<Set<string>>(new Set())
+  // Ordenamiento de la tabla
+  const [sortKey, setSortKey] = useState<SortKey>('score_total')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  // Columnas visibles — se inicia con defaults para evitar hydration mismatch SSR/localStorage
+  const [colsVisibles, setColsVisibles] = useState<Set<ColId>>(new Set(COLS_DEFAULT))
   const router = useRouter()
+
+  // Sincronizar columnas visibles con localStorage después del montaje (client-only)
+  useEffect(() => {
+    const saved = localStorage.getItem('ranking_cols')
+    if (saved) {
+      try { setColsVisibles(new Set(JSON.parse(saved) as ColId[])) } catch { /* ignora JSON inválido */ }
+    }
+  }, [])
 
   function toggleSeleccion(id: string) {
     setSeleccionados(prev => {
@@ -541,6 +730,27 @@ export default function RankingDashboard({ proyectos }: Props) {
     router.push(`/comparar?ids=${ids}`)
   }
 
+  // Alterna el ordenamiento: mismo key → invierte dirección; nuevo key → desc
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir(d => d === 'desc' ? 'asc' : 'desc')
+    } else {
+      setSortKey(key)
+      setSortDir('desc')
+    }
+  }
+
+  // Muestra/oculta una columna y persiste la preferencia en localStorage
+  function toggleCol(col: ColId) {
+    setColsVisibles(prev => {
+      const next = new Set(prev)
+      if (next.has(col)) next.delete(col)
+      else next.add(col)
+      localStorage.setItem('ranking_cols', JSON.stringify(Array.from(next)))
+      return next
+    })
+  }
+
   // Listas únicas para los selects de tipo y sector
   const tiposDisponibles = useMemo(() => {
     const set = new Set(proyectos.map(p => p.tipo).filter(Boolean) as string[])
@@ -553,7 +763,7 @@ export default function RankingDashboard({ proyectos }: Props) {
   }, [proyectos])
 
   // Pipeline de filtros + ordenamiento
-  // useMemo evita recalcular si ni los proyectos ni los filtros cambiaron.
+  // useMemo evita recalcular si ni los proyectos ni los filtros/sort cambiaron.
   const filasFiltradas = useMemo(() => {
     let resultado = [...proyectos]
 
@@ -579,12 +789,14 @@ export default function RankingDashboard({ proyectos }: Props) {
       resultado = resultado.filter(p => p.sector === filtros.sector)
     }
 
-    // 5. Ordenar por score_total descendente (null al final)
+    // 5. Ordenar según sortKey + sortDir (null siempre al final)
     resultado.sort((a, b) => {
-      if (a.score_total === null && b.score_total === null) return 0
-      if (a.score_total === null) return 1
-      if (b.score_total === null) return -1
-      return b.score_total - a.score_total
+      const av = a[sortKey] as number | null
+      const bv = b[sortKey] as number | null
+      if (av === null && bv === null) return 0
+      if (av === null) return 1
+      if (bv === null) return -1
+      return sortDir === 'desc' ? bv - av : av - bv
     })
 
     // 6. "Mejor de cada proyecto": agrupar por nombre, conservar solo la de mayor score
@@ -601,7 +813,7 @@ export default function RankingDashboard({ proyectos }: Props) {
           if (scoreNuevo > scoreActual) mapa.set(p.nombre, p)
         }
       }
-      // Preservar el orden (ya estaba ordenado por score)
+      // Preservar el orden (ya estaba ordenado por sortKey)
       resultado = resultado.filter(p => mapa.get(p.nombre)?.id === p.id)
     }
 
@@ -611,7 +823,7 @@ export default function RankingDashboard({ proyectos }: Props) {
     }
 
     return resultado
-  }, [proyectos, filtros])
+  }, [proyectos, filtros, sortKey, sortDir])
 
   return (
     <div>
@@ -685,6 +897,11 @@ export default function RankingDashboard({ proyectos }: Props) {
           proyectos={filasFiltradas}
           seleccionados={seleccionados}
           onToggle={toggleSeleccion}
+          sortKey={sortKey}
+          sortDir={sortDir}
+          onSort={toggleSort}
+          colsVisibles={colsVisibles}
+          onToggleCol={toggleCol}
         />
       ) : (
         <MapaProyectos proyectos={filasFiltradas} />

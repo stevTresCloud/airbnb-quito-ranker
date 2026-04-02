@@ -70,6 +70,18 @@ export async function guardarPesos(
   const fallido = resultados.find((r) => r.error)
   if (fallido?.error) return { ok: false, error: fallido.error.message }
 
+  // Reordenar criterios por peso descendente (el de mayor peso queda en orden=1).
+  // Esto actualiza el campo `orden` que determina la secuencia visual en el desglose.
+  const ordenados = [...actualizaciones].sort((a, b) => b.peso - a.peso)
+  await Promise.all(
+    ordenados.map(({ id }, idx) =>
+      supabase
+        .from('criterios_scoring')
+        .update({ orden: idx + 1 })
+        .eq('id', id)
+    )
+  )
+
   revalidatePath('/configuracion/scoring')
   revalidatePath('/configuracion')
   return { ok: true }
