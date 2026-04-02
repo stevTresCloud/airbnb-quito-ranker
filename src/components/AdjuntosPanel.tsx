@@ -8,8 +8,12 @@
 // Por qué useEffect para el reset:
 //   Llamar setState directamente en el render body causaría un loop. useEffect garantiza
 //   que el reset ocurre solo cuando subirState cambia a ok=true.
+//
+// Preview inline:
+//   El modal vive en AdjuntosPanel (un solo nodo), no en cada AdjuntoItem.
+//   AdjuntoItem llama onPreview(url, tipo) → el panel actualiza el estado y muestra el modal.
 
-import { useActionState, useRef, useState, useEffect } from 'react'
+import { useActionState, useRef, useState, useEffect, useCallback } from 'react'
 import { subirAdjunto, eliminarAdjunto } from '@/app/(app)/proyecto/[id]/actions'
 import type { ActionState } from '@/app/(app)/proyecto/[id]/actions'
 
@@ -35,12 +39,29 @@ const TIPOS_ADJUNTO = [
   { value: 'otro',         label: 'Otro' },
 ]
 
+// Tipos de adjunto que tienen preview inline disponible
+type PreviewTipo = 'imagen' | 'pdf'
+type PreviewState = { url: string; nombre: string; tipo: PreviewTipo } | null
+
+function resolverPreviewTipo(adjunto: AdjuntoRow): PreviewTipo | null {
+  if (adjunto.tipo === 'foto' || adjunto.tipo === 'render') return 'imagen'
+  if (adjunto.tipo === 'brochure_pdf' || adjunto.tipo === 'plano_pdf') return 'pdf'
+  return null
+}
+
 interface Props {
   proyectoId: string
   adjuntosIniciales: AdjuntoRow[]
 }
 
 export function AdjuntosPanel({ proyectoId, adjuntosIniciales }: Props) {
+  const [preview, setPreview] = useState<PreviewState>(null)
+
+  const abrirPreview = useCallback((url: string, nombre: string, tipo: PreviewTipo) => {
+    setPreview({ url, nombre, tipo })
+  }, [])
+
+  const cerrarPreview = useCallback(() => setPreview(null), [])
   const subirAction = subirAdjunto.bind(null, proyectoId)
   const [subirState, subirFormAction, subiendo] = useActionState<ActionState, FormData>(subirAction, null)
   const formRef     = useRef<HTMLFormElement>(null)
@@ -107,6 +128,65 @@ export function AdjuntosPanel({ proyectoId, adjuntosIniciales }: Props) {
 
   return (
     <div className="space-y-6">
+
+      {/* ── Modal de preview inline ───────────────────────────────────────── */}
+      {preview && (
+        // Overlay: clic fuera del contenido cierra el modal
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+          onClick={cerrarPreview}
+        >
+          <div
+            className="relative bg-zinc-900 rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col"
+            // Detener propagación para que clic dentro no cierre el modal
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Cabecera del modal */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-700 flex-shrink-0">
+              <p className="text-sm font-medium text-zinc-200 truncate pr-4">{preview.nombre}</p>
+              <div className="flex items-center gap-3 flex-shrink-0">
+                <a
+                  href={preview.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+                >
+                  Abrir en nueva pestaña ↗
+                </a>
+                <button
+                  type="button"
+                  onClick={cerrarPreview}
+                  className="text-zinc-400 hover:text-zinc-100 transition-colors text-lg leading-none"
+                  aria-label="Cerrar preview"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Contenido: imagen o PDF */}
+            <div className="flex-1 overflow-auto p-2 flex items-center justify-center min-h-0">
+              {preview.tipo === 'imagen' ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={preview.url}
+                  alt={preview.nombre}
+                  className="max-h-[75vh] max-w-full object-contain rounded"
+                />
+              ) : (
+                // iframe para PDF — el browser nativo ya tiene controles de zoom y descarga
+                <iframe
+                  src={preview.url}
+                  title={preview.nombre}
+                  className="w-full rounded"
+                  style={{ height: '75vh' }}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Lista de adjuntos existentes ─────────────────────────────────── */}
       <div>
         <h3 className="text-sm font-medium text-zinc-400 mb-3">
@@ -116,7 +196,11 @@ export function AdjuntosPanel({ proyectoId, adjuntosIniciales }: Props) {
         {adjuntosIniciales.length > 0 && (
           <ul className="space-y-2">
             {adjuntosIniciales.map(adj => (
-              <AdjuntoItem key={adj.id} adjunto={adj} />
+              <AdjuntoItem
+                key={adj.id}
+                adjunto={adj}
+                onPreview={abrirPreview}
+              />
             ))}
           </ul>
         )}
@@ -260,11 +344,18 @@ export function AdjuntosPanel({ proyectoId, adjuntosIniciales }: Props) {
 }
 
 // ─── Fila individual de adjunto ────────────────────────────────────────────────
-function AdjuntoItem({ adjunto }: { adjunto: AdjuntoRow }) {
+function AdjuntoItem({
+  adjunto,
+  onPreview,
+}: {
+  adjunto: AdjuntoRow
+  onPreview: (url: string, nombre: string, tipo: PreviewTipo) => void
+}) {
   const deleteAction = eliminarAdjunto.bind(null, adjunto.id, adjunto.storage_path)
   const [deleteState, deleteFormAction, eliminando] = useActionState<ActionState, FormData>(deleteAction, null)
 
   const tipoLabel = TIPOS_ADJUNTO.find(t => t.value === adjunto.tipo)?.label ?? adjunto.tipo
+  const previewTipo = resolverPreviewTipo(adjunto)
 
   return (
     <li className="flex items-start gap-3 p-3 bg-zinc-800/50 rounded-lg border border-zinc-700/50">
@@ -289,7 +380,18 @@ function AdjuntoItem({ adjunto }: { adjunto: AdjuntoRow }) {
 
       {/* Acciones */}
       <div className="flex items-center gap-2 flex-shrink-0">
-        {adjunto.url_firmada && (
+        {adjunto.url_firmada && previewTipo ? (
+          // Preview inline para imágenes y PDFs
+          <button
+            type="button"
+            onClick={() => onPreview(adjunto.url_firmada!, adjunto.nombre, previewTipo)}
+            className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors px-2 py-1
+                       rounded border border-zinc-700 hover:border-zinc-500"
+          >
+            Ver
+          </button>
+        ) : adjunto.url_firmada ? (
+          // Fallback: abrir en nueva pestaña (videos u otros tipos)
           <a
             href={adjunto.url_firmada}
             target="_blank"
@@ -299,7 +401,8 @@ function AdjuntoItem({ adjunto }: { adjunto: AdjuntoRow }) {
           >
             Ver
           </a>
-        )}
+        ) : null}
+
         {adjunto.url_externa && (
           <a
             href={adjunto.url_externa}

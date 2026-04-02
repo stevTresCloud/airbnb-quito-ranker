@@ -677,13 +677,13 @@ NEXT_PUBLIC_APP_DOMAIN=localhost   # en Vercel: cambiar al dominio real (ej: air
 
 ## Deploy — Vercel
 
-### Setup inicial (una sola vez)
+### Setup inicial ✅ COMPLETADO (2026-04-01)
 
-1. **Repositorio GitHub** — sube el proyecto: `git init → git push`
-2. **Cuenta Vercel** — registrarse en vercel.com con la cuenta de GitHub
-3. **Conectar repo** — "Add New Project" → seleccionar el repositorio → Vercel detecta Next.js automáticamente
-4. **Variables de entorno** — en el dashboard de Vercel, antes del primer deploy, ingresar las 5 variables de `.env.local`
-5. **Deploy** — presionar "Deploy". En 2-3 minutos la app está publicada en `https://airbnb-quito-ranker.vercel.app`
+1. **Repositorio GitHub** — `stevTresCloud/airbnb-quito-ranker` ✅
+2. **Cuenta Vercel** — conectada con GitHub (`stevtrescloud's projects`) ✅
+3. **Conectar repo** — importado en Vercel, detecta Next.js automáticamente ✅
+4. **Variables de entorno** — las 6 variables de `.env.local` ingresadas en Vercel ✅
+5. **Deploy** — app publicada en **https://airbnb-quito-ranker.vercel.app** ✅
 
 ### Flujo cotidiano
 
@@ -787,7 +787,18 @@ Hacer siempre al final de cada fase, en este orden:
    - Reemplazar `*(completar al implementar)*` por la lista real de pruebas de browser
    - Las pruebas deben ser concretas y verificables paso a paso
 
-### Paso 4 — Smoke test por fase (verificar en el browser)
+### Paso 4 — Deploy a producción
+
+```bash
+git add .
+git commit -m "feat: descripción completa del cambio"
+git push
+```
+
+Vercel detecta el push y redespliega automáticamente en ~1 minuto.
+Verificar el resultado en **https://airbnb-quito-ranker.vercel.app**
+
+### Paso 5 — Smoke test por fase (verificar en el browser)
 
 **Fase 1 — Auth**
 - [ ] `localhost:3000` sin sesión → redirige a `/login`
@@ -1162,12 +1173,10 @@ lib/__tests__/scoring.test.ts  (6 tests)
 - Centro del mapa: Parque La Carolina `[-0.183, -78.487]`, zoom 14
 
 ### Nice-to-have (post-MVP)
-- [ ] **Calculadora bidireccional de porcentajes de pago** — en el formulario de edición, al modificar
-      `% Entrada`, `% Durante` o `% Contra entrega`, recalcular los otros para que siempre sumen 100%.
-      Incluir indicador visual verde/rojo (igual al de pesos de scoring) mostrando la suma actual.
-- [ ] **Preview inline de adjuntos** — en el panel de adjuntos, al hacer clic en "Ver" abrir un modal
-      ligero dentro de la app: imágenes con `<img>`, PDFs con `<iframe>` o `<embed>`.
-      No requiere librería externa (nativo del browser). Usar la URL firmada de 24h ya generada.
+- [x] **Calculadora bidireccional de porcentajes de pago** ✅ (2026-04-01) — inputs controlados en sub-tab Pago;
+      monto calculado en vivo junto a cada %; indicador verde/rojo de suma (igual a pesos de scoring).
+- [x] **Preview inline de adjuntos** ✅ (2026-04-01) — clic en "Ver" abre modal overlay con `<img>` (foto/render)
+      o `<iframe>` (PDF). Link "Abrir en nueva pestaña" disponible dentro del modal. Sin librerías externas.
 - [ ] **Inactivity timer en /configuracion/*** — Opción C de seguridad: re-lock automático si el usuario lleva
       más de N minutos sin actividad dentro de la sección de config (complemento de la Opción A ya implementada).
       Implementar junto con el inactivity lock global de Fase de Seguridad Avanzada.

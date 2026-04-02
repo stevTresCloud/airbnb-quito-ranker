@@ -610,6 +610,26 @@ function TabEditar({
   const [subTab, setSubTab] = useState<SubTab>('identificacion')
   const [amobladoFinanciado, setAmobladoFinanciado] = useState(p.amoblado_financiado)
 
+  // ── Calculadora bidireccional de porcentajes de pago ──────────────────
+  // Inputs controlados para poder calcular montos en vivo y validar la suma.
+  // Se usan strings porque el input devuelve string y parseFloat('') === NaN.
+  const [pctEntrada, setPctEntrada] = useState(String(p.porcentaje_entrada ?? ''))
+  const [pctDurante, setPctDurante] = useState(String(p.porcentaje_durante_construccion ?? ''))
+  const [pctContra,  setPctContra]  = useState(String(p.porcentaje_contra_entrega ?? ''))
+
+  // precio_total puede ser null si aún no se calculó (ej: registro recién creado)
+  const precioRef = p.precio_total ?? p.precio_base
+
+  const sumaPct = (parseFloat(pctEntrada) || 0) + (parseFloat(pctDurante) || 0) + (parseFloat(pctContra) || 0)
+  const sumaOk  = Math.abs(sumaPct - 100) < 0.01
+
+  // Formatea un monto en dólares sin decimales
+  const fmt = (pct: string) => {
+    const val = parseFloat(pct)
+    if (!val || !precioRef) return null
+    return `$${Math.round(val * precioRef / 100).toLocaleString('es-EC')}`
+  }
+
   // Sector: combobox con opción "Agregar nuevo", igual que en FormularioRapido
   const esSectorDesconocido = p.sector !== '' && !sectores.find(s => s.nombre === p.sector)
   const [sectorSelect, setSectorSelect] = useState(esSectorDesconocido ? SENTINEL_NUEVO : p.sector)
@@ -936,14 +956,25 @@ function TabEditar({
             <p className={HINT_CLS}>Monto de separación inicial. Se abona a la entrada al firmar promesa.</p>
           </Campo>
           <Campo label="% Entrada">
-            <input type="number" step="0.01" name="porcentaje_entrada" min="0" max="100" defaultValue={p.porcentaje_entrada ?? ''} className={INPUT_CLS} placeholder={ph.entrada} />
-            <p className={HINT_CLS}>Porcentaje del precio total que se paga al firmar.</p>
+            {/* Input controlado — onChange actualiza el estado para calcular monto en vivo */}
+            <input type="number" step="0.01" name="porcentaje_entrada" min="0" max="100"
+              value={pctEntrada} onChange={e => setPctEntrada(e.target.value)}
+              className={INPUT_CLS} placeholder={ph.entrada} />
+            <p className={HINT_CLS}>
+              Porcentaje del precio total que se paga al firmar.
+              {fmt(pctEntrada) && <span className="text-zinc-400 ml-1">→ {fmt(pctEntrada)}</span>}
+            </p>
           </Campo>
         </div>
         <div className="grid grid-cols-2 gap-4">
           <Campo label="% Durante construcción">
-            <input type="number" step="0.01" name="porcentaje_durante_construccion" min="0" max="100" defaultValue={p.porcentaje_durante_construccion ?? ''} className={INPUT_CLS} placeholder={ph.durante} />
-            <p className={HINT_CLS}>Porcentaje pagado en cuotas mensuales mientras se construye.</p>
+            <input type="number" step="0.01" name="porcentaje_durante_construccion" min="0" max="100"
+              value={pctDurante} onChange={e => setPctDurante(e.target.value)}
+              className={INPUT_CLS} placeholder={ph.durante} />
+            <p className={HINT_CLS}>
+              Porcentaje pagado en cuotas mensuales mientras se construye.
+              {fmt(pctDurante) && <span className="text-zinc-400 ml-1">→ {fmt(pctDurante)}</span>}
+            </p>
           </Campo>
           <Campo label="Nro cuotas obra">
             <input type="number" name="num_cuotas_construccion" min="0" defaultValue={p.num_cuotas_construccion ?? ''} className={INPUT_CLS} placeholder={ph.cuotas} />
@@ -951,9 +982,26 @@ function TabEditar({
           </Campo>
         </div>
         <Campo label="% Contra entrega (financia el banco)">
-          <input type="number" step="0.01" name="porcentaje_contra_entrega" min="0" max="100" defaultValue={p.porcentaje_contra_entrega ?? ''} className={INPUT_CLS} placeholder={ph.contra} />
-          <p className={HINT_CLS}>Porcentaje que se financia con crédito hipotecario al recibir el inmueble.</p>
+          <input type="number" step="0.01" name="porcentaje_contra_entrega" min="0" max="100"
+            value={pctContra} onChange={e => setPctContra(e.target.value)}
+            className={INPUT_CLS} placeholder={ph.contra} />
+          <p className={HINT_CLS}>
+            Porcentaje que se financia con crédito hipotecario al recibir el inmueble.
+            {fmt(pctContra) && <span className="text-zinc-400 ml-1">→ {fmt(pctContra)}</span>}
+          </p>
         </Campo>
+
+        {/* Indicador de suma — igual al de pesos de scoring */}
+        {(pctEntrada || pctDurante || pctContra) && (
+          <div className={`text-sm font-medium ${sumaOk ? 'text-emerald-400' : 'text-amber-400'}`}>
+            Suma: {sumaPct.toFixed(2)}%{' '}
+            {sumaOk
+              ? '✓'
+              : sumaPct < 100
+                ? `— faltan ${(100 - sumaPct).toFixed(2)}%`
+                : `— sobran ${(sumaPct - 100).toFixed(2)}%`}
+          </div>
+        )}
       </Seccion>
 
       {/* ── Financiamiento ────────────────────────────────────────────── */}
