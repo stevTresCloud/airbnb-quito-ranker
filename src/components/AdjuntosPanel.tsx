@@ -194,7 +194,7 @@ export function AdjuntosPanel({ proyectoId, adjuntosIniciales }: Props) {
         </h3>
 
         {adjuntosIniciales.length > 0 && (
-          <ul className="space-y-2">
+          <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
             {adjuntosIniciales.map(adj => (
               <AdjuntoItem
                 key={adj.id}
@@ -358,45 +358,45 @@ function AdjuntoItem({
   const previewTipo = resolverPreviewTipo(adjunto)
 
   return (
-    <li className="flex items-start gap-3 p-3 bg-zinc-800/50 rounded-lg border border-zinc-700/50">
-      {/* Icono por tipo */}
-      <span className="text-lg mt-0.5 flex-shrink-0">
-        {adjunto.tipo === 'foto' || adjunto.tipo === 'render' ? '🖼' :
-         adjunto.tipo.includes('pdf') ? '📄' :
-         adjunto.tipo === 'link_video' ? '🎬' : '📎'}
-      </span>
-
-      {/* Info */}
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-zinc-200 truncate">{adjunto.nombre}</p>
-        <p className="text-xs text-zinc-500">{tipoLabel}</p>
-        {adjunto.descripcion && (
-          <p className="text-xs text-zinc-400 mt-0.5">{adjunto.descripcion}</p>
-        )}
-        {deleteState?.error && (
-          <p className="text-xs text-red-400 mt-1">{deleteState.error}</p>
-        )}
+    <li className="flex flex-col gap-2 p-3 bg-zinc-800/50 rounded-lg border border-zinc-700/50">
+      {/* Icono + nombre */}
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="text-base flex-shrink-0">
+          {adjunto.tipo === 'foto' || adjunto.tipo === 'render' ? '🖼' :
+           adjunto.tipo.includes('pdf') ? '📄' :
+           adjunto.tipo === 'link_video' ? '🎬' : '📎'}
+        </span>
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-zinc-200 truncate">{adjunto.nombre}</p>
+          <p className="text-[11px] text-zinc-500">{tipoLabel}</p>
+        </div>
       </div>
 
-      {/* Acciones */}
-      <div className="flex items-center gap-2 flex-shrink-0">
+      {/* Descripción truncada a 1 línea */}
+      {adjunto.descripcion && (
+        <p className="text-[11px] text-zinc-400 truncate">{adjunto.descripcion}</p>
+      )}
+      {deleteState?.error && (
+        <p className="text-[11px] text-red-400">{deleteState.error}</p>
+      )}
+
+      {/* Acciones en fila compacta */}
+      <div className="flex items-center gap-1.5 flex-wrap">
         {adjunto.url_firmada && previewTipo ? (
-          // Preview inline para imágenes y PDFs
           <button
             type="button"
             onClick={() => onPreview(adjunto.url_firmada!, adjunto.nombre, previewTipo)}
-            className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors px-2 py-1
+            className="text-[11px] text-zinc-400 hover:text-zinc-200 transition-colors px-2 py-0.5
                        rounded border border-zinc-700 hover:border-zinc-500"
           >
             Ver
           </button>
         ) : adjunto.url_firmada ? (
-          // Fallback: abrir en nueva pestaña (videos u otros tipos)
           <a
             href={adjunto.url_firmada}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors px-2 py-1
+            className="text-[11px] text-zinc-400 hover:text-zinc-200 transition-colors px-2 py-0.5
                        rounded border border-zinc-700 hover:border-zinc-500"
           >
             Ver
@@ -408,7 +408,7 @@ function AdjuntoItem({
             href={adjunto.url_externa}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors px-2 py-1
+            className="text-[11px] text-zinc-400 hover:text-zinc-200 transition-colors px-2 py-0.5
                        rounded border border-zinc-700 hover:border-zinc-500"
           >
             Abrir
@@ -419,8 +419,8 @@ function AdjuntoItem({
           <button
             type="submit"
             disabled={eliminando}
-            className="text-xs text-red-500 hover:text-red-400 disabled:opacity-50
-                       transition-colors px-2 py-1 rounded border border-red-900/50
+            className="text-[11px] text-red-500 hover:text-red-400 disabled:opacity-50
+                       transition-colors px-2 py-0.5 rounded border border-red-900/50
                        hover:border-red-700/50"
             onClick={e => {
               if (!confirm(`¿Eliminar "${adjunto.nombre}"?`)) e.preventDefault()

@@ -12,7 +12,7 @@
 import { redirect } from 'next/navigation'
 import { createSupabaseServer } from '@/lib/supabase'
 import { AppProviders } from '@/components/AppProviders'
-import { Nav, PrivacyButton, RecalcularButton, ThemeButton } from '@/components/Nav'
+import { Nav, PrivacyButton, RecalcularButton, ThemeButton, LogoutButton } from '@/components/Nav'
 
 export default async function AppLayout({
   children,
@@ -51,9 +51,7 @@ export default async function AppLayout({
               <RecalcularButton />
               <PrivacyButton />
               <ThemeButton />
-              <span className="text-xs text-zinc-500 truncate max-w-[100px]">
-                {user.email}
-              </span>
+              <LogoutButton />
             </div>
           </header>
 

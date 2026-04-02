@@ -678,11 +678,14 @@ function FilaRanking({ proyecto: p, posicion, seleccionado, deshabilitado, onTog
       )}
 
       {/* Botón ver detalle — stopPropagation para que no active el toggle */}
+      {/* En móvil siempre visible (hover no existe en touch). En desktop aparece al hover. */}
       <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
         <Link
           href={`/proyecto/${p.id}`}
-          className="text-xs text-zinc-500 hover:text-zinc-200 transition-colors
-                     opacity-0 group-hover:opacity-100"
+          className="text-xs text-zinc-300 transition-colors px-2 py-1 rounded
+                     bg-zinc-700 hover:bg-zinc-600
+                     md:bg-transparent md:text-zinc-500 md:hover:text-zinc-200
+                     md:opacity-0 md:group-hover:opacity-100 md:px-0 md:py-0 md:rounded-none"
         >
           Ver →
         </Link>
@@ -828,7 +831,8 @@ export default function RankingDashboard({ proyectos }: Props) {
   return (
     <div>
       {/* Título + toggle Lista|Mapa + botón nuevo */}
-      <div className="flex items-center justify-between mb-6">
+      {/* flex-wrap: en móvil los botones bajan a la siguiente línea para no forzar zoom */}
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-6">
         <div>
           <h1 className="text-xl font-semibold text-zinc-100">Ranking</h1>
           <p className="text-xs text-zinc-500 mt-0.5">

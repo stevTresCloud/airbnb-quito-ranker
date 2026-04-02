@@ -17,6 +17,13 @@ export const metadata: Metadata = {
   description: "Comparador privado de proyectos inmobiliarios en Quito",
 };
 
+// Viewport explícito para que los navegadores móviles no hagan zoom automático
+// cuando el contenido es más ancho que la pantalla.
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{

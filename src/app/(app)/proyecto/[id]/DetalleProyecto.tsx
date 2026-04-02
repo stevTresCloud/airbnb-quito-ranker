@@ -723,11 +723,8 @@ function TabEditar({
             <input type="text" name="contacto_nombre" defaultValue={p.contacto_nombre ?? ''} className={INPUT_CLS} />
           </Campo>
           <Campo label="Teléfono / WhatsApp">
-            <div className="flex gap-2 items-center">
-              <input type="text" name="contacto_telefono" defaultValue={p.contacto_telefono ?? ''}
-                className={`${INPUT_CLS} flex-1`} placeholder="0995939183" />
-              {p.contacto_telefono && <BtnWhatsApp telefono={p.contacto_telefono} />}
-            </div>
+            <input type="text" name="contacto_telefono" defaultValue={p.contacto_telefono ?? ''}
+              className={INPUT_CLS} placeholder="0995939183" />
             <p className={HINT_CLS}>Solo dígitos o con prefijo de país. El botón abre WhatsApp directamente.</p>
           </Campo>
         </div>
@@ -887,7 +884,7 @@ function TabEditar({
                 name="amoblado_financiado"
                 defaultChecked={p.amoblado_financiado}
                 onChange={e => setAmobladoFinanciado(e.target.checked)}
-                className="w-4 h-4 rounded border-zinc-600 bg-zinc-800 text-indigo-500"
+                className="w-4 h-4 rounded border-zinc-600 bg-zinc-800 accent-indigo-500"
               />
               <span className="text-sm text-zinc-300">Financiar amoblado con préstamo</span>
             </label>
@@ -1312,7 +1309,7 @@ function CheckboxField({
         value={value}
         defaultChecked={defaultChecked}
         className="w-4 h-4 rounded border-zinc-600 bg-zinc-800 text-zinc-200
-                   focus:ring-0 focus:ring-offset-0 accent-zinc-300"
+                   focus:ring-0 focus:ring-offset-0 accent-indigo-500"
       />
       <span className="text-sm text-zinc-300 group-hover:text-zinc-100 transition-colors">
         {label}

@@ -290,6 +290,25 @@ function ThemeButton({ className }: { className?: string }) {
 
 export { ThemeButton }
 
+// ─── Botón de logout (ícono solo, para el header móvil) ──────────────────────
+
+function LogoutButton({ className }: { className?: string }) {
+  return (
+    <form action={logoutAction}>
+      <button
+        type="submit"
+        title="Cerrar sesión"
+        className={`transition-colors select-none text-zinc-500 hover:text-red-400
+                    ${className ?? ''}`}
+      >
+        <IconLogout />
+      </button>
+    </form>
+  )
+}
+
+export { LogoutButton }
+
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 export function Nav({ email }: { email: string }) {
