@@ -205,10 +205,25 @@ export function ComparadorTabla({ proyectos, criterios }: Props) {
   return (
     <div className="max-w-6xl mx-auto">
 
-      <div className="mb-6">
+      {/* Barra de acciones — oculta en impresión */}
+      <div className="print:hidden mb-6 flex items-center justify-between gap-4">
         <Link href="/" className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">
           ← Ranking
         </Link>
+        {/* Exportar PDF — abre el diálogo de impresión del navegador.
+            El usuario elige "Guardar como PDF" en la impresora. */}
+        <button
+          onClick={() => window.print()}
+          className="flex items-center gap-2 text-xs text-zinc-400 hover:text-zinc-100
+                     border border-zinc-700 hover:border-zinc-500 rounded-lg px-3 py-1.5
+                     transition-colors"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+          </svg>
+          Exportar PDF
+        </button>
       </div>
 
       <h1 className="text-xl font-semibold text-zinc-100 mb-6">
@@ -520,8 +535,8 @@ export function ComparadorTabla({ proyectos, criterios }: Props) {
 
           </tbody>
 
-          {/* ── Fila final: botón Ver detalle ── */}
-          <tfoot>
+          {/* ── Fila final: botón Ver detalle — oculta en impresión ── */}
+          <tfoot className="print:hidden">
             <tr className="bg-zinc-900/60 border-t border-zinc-800">
               <td className="px-4 py-4" />
               {proyectos.map(p => (

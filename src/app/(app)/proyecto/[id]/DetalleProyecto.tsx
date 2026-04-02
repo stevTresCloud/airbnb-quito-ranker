@@ -219,15 +219,24 @@ const CRITERIO_INFO: Record<string, string> = {
 // ─── Componente principal ─────────────────────────────────────────────────────
 type Tab = 'resumen' | 'editar' | 'adjuntos' | 'ia'
 
+type PrecioHistorialItem = {
+  id: string
+  precio_base: number
+  precio_anterior: number | null
+  notas: string | null
+  created_at: string
+}
+
 interface Props {
   proyecto: ProyectoDetalle
   criterios: CriterioRow[]
   adjuntos: AdjuntoRow[]
   config?: ConfiguracionRow
   sectores: SectorOption[]
+  historialPrecios: PrecioHistorialItem[]
 }
 
-export function DetalleProyecto({ proyecto, criterios, adjuntos, config, sectores }: Props) {
+export function DetalleProyecto({ proyecto, criterios, adjuntos, config, sectores, historialPrecios }: Props) {
   const [tab, setTab] = useState<Tab>('resumen')
 
   // Acciones con useActionState — el tercer valor es el estado 'pending' (carga)
@@ -350,7 +359,7 @@ export function DetalleProyecto({ proyecto, criterios, adjuntos, config, sectore
       </div>
 
       {/* ── Contenido por tab ─────────────────────────────────────────────── */}
-      {tab === 'resumen'  && <TabResumen  proyecto={proyecto} criterios={criterios} />}
+      {tab === 'resumen'  && <TabResumen  proyecto={proyecto} criterios={criterios} historialPrecios={historialPrecios} />}
       {tab === 'editar'   && <TabEditar   proyecto={proyecto} action={editAction} state={editState} pending={editPending} config={config} sectores={sectores} />}
       {tab === 'adjuntos' && <AdjuntosPanel proyectoId={proyecto.id} adjuntosIniciales={adjuntos} />}
       {tab === 'ia'       && <TabIA        proyecto={proyecto} action={iaAction} state={iaState} pending={iaPending} />}
@@ -361,7 +370,11 @@ export function DetalleProyecto({ proyecto, criterios, adjuntos, config, sectore
 // ═══════════════════════════════════════════════════════════════════════════════
 // TAB: RESUMEN
 // ═══════════════════════════════════════════════════════════════════════════════
-function TabResumen({ proyecto: p, criterios }: { proyecto: ProyectoDetalle; criterios: CriterioRow[] }) {
+function TabResumen({ proyecto: p, criterios, historialPrecios }: {
+  proyecto: ProyectoDetalle
+  criterios: CriterioRow[]
+  historialPrecios: PrecioHistorialItem[]
+}) {
   // Clave del criterio cuya explicación está expandida (null = ninguna)
   const [criterioExpandido, setCriterioExpandido] = useState<string | null>(null)
 
@@ -579,6 +592,56 @@ function TabResumen({ proyecto: p, criterios }: { proyecto: ProyectoDetalle; cri
         <section>
           <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">Notas</h2>
           <p className="text-sm text-zinc-300 bg-zinc-900 rounded-lg p-4 whitespace-pre-wrap">{p.notas}</p>
+        </section>
+      )}
+
+      {/* ── Historial de precio ───────────────────────────────────────── */}
+      {/* Solo aparece si hay al menos un cambio registrado.
+          El primer precio nunca genera historial — se empieza a registrar
+          desde el primer cambio posterior al ingreso. */}
+      {historialPrecios.length > 0 && (
+        <section>
+          <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">
+            Historial de precio
+          </h2>
+          <ol className="space-y-2">
+            {historialPrecios.map((h) => {
+              const subio = h.precio_anterior !== null && h.precio_base > h.precio_anterior
+              const bajo  = h.precio_anterior !== null && h.precio_base < h.precio_anterior
+              return (
+                <li
+                  key={h.id}
+                  className="flex items-start gap-3 bg-zinc-900 border border-zinc-800
+                             rounded-lg px-4 py-3 text-sm"
+                >
+                  {/* Flecha de dirección */}
+                  <span className={`text-base mt-0.5 shrink-0 ${
+                    subio ? 'text-red-400' : bajo ? 'text-emerald-400' : 'text-zinc-500'
+                  }`}>
+                    {subio ? '↑' : bajo ? '↓' : '→'}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <span className="font-mono font-semibold text-zinc-100">
+                        ${h.precio_base.toLocaleString('es-EC', { maximumFractionDigits: 0 })}
+                      </span>
+                      {h.precio_anterior !== null && (
+                        <span className="text-xs text-zinc-500">
+                          antes: ${h.precio_anterior.toLocaleString('es-EC', { maximumFractionDigits: 0 })}
+                        </span>
+                      )}
+                    </div>
+                    {h.notas && <p className="text-xs text-zinc-500 mt-0.5">{h.notas}</p>}
+                    <p className="text-xs text-zinc-600 mt-0.5">
+                      {new Date(h.created_at).toLocaleDateString('es-EC', {
+                        day: '2-digit', month: 'short', year: 'numeric',
+                      })}
+                    </p>
+                  </div>
+                </li>
+              )
+            })}
+          </ol>
         </section>
       )}
     </div>

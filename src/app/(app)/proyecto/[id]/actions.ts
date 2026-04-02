@@ -111,7 +111,10 @@ async function leerContextoScoring(supabase: Awaited<ReturnType<typeof createSup
     await Promise.all([
       supabase.from('configuracion').select('*').single(),
       supabase.from('criterios_scoring').select('clave, peso').eq('activo', true),
-      supabase.from('sectores_scoring').select('nombre, score_base').eq('activo', true),
+      // Incluimos los 5 sub-criterios: si su suma > 0, se usan en lugar de score_base
+      supabase.from('sectores_scoring')
+        .select('nombre, score_base, sc_renta, sc_seguridad, sc_plusvalia, sc_acceso, sc_servicios')
+        .eq('activo', true),
       excluirId
         ? supabase.from('proyectos').select('roi_anual, precio_m2').neq('id', excluirId)
         : supabase.from('proyectos').select('roi_anual, precio_m2'),
@@ -121,7 +124,13 @@ async function leerContextoScoring(supabase: Awaited<ReturnType<typeof createSup
   for (const c of criterios ?? []) pesos[c.clave] = c.peso
 
   const scores_sectores: Record<string, number> = {}
-  for (const s of sectoresDB ?? []) scores_sectores[s.nombre] = s.score_base
+  for (const s of sectoresDB ?? []) {
+    // Si los sub-criterios están configurados (suma > 0), usarlos como score efectivo.
+    // Fallback a score_base para sectores que aún no tienen sub-criterios asignados.
+    const subTotal = (s.sc_renta ?? 0) + (s.sc_seguridad ?? 0) +
+                     (s.sc_plusvalia ?? 0) + (s.sc_acceso ?? 0) + (s.sc_servicios ?? 0)
+    scores_sectores[s.nombre] = subTotal > 0 ? subTotal : s.score_base
+  }
 
   return { config, pesos, scores_sectores, existentes: existentes ?? [] }
 }
@@ -316,12 +325,29 @@ export async function guardarEdicion(
     pesos, todos_precio_m2, scores_sectores
   )
 
+  // Leer el precio_base actual para detectar si cambió (log historial)
+  const { data: actual } = await supabase
+    .from('proyectos')
+    .select('precio_base')
+    .eq('id', id)
+    .single()
+
   const { error } = await supabase
     .from('proyectos')
     .update({ ...campos, ...metricasUpdate(metricas, scores) })
     .eq('id', id)
 
   if (error) return { ok: false, error: error.message }
+
+  // Registrar cambio de precio si el valor cambió
+  // Solo insertamos — nunca borramos historial, es un log inmutable.
+  if (actual && precio_base !== null && actual.precio_base !== precio_base) {
+    await supabase.from('precio_historial').insert({
+      proyecto_id:    id,
+      precio_base:    precio_base,
+      precio_anterior: actual.precio_base,
+    })
+  }
 
   revalidatePath(`/proyecto/${id}`)
   revalidatePath('/')
@@ -679,3 +705,33 @@ export async function eliminarProyecto(
   // redirect() lanza una excepción interna en Next.js (tipo never) — debe quedar fuera de try/catch
   redirect('/')
 }
+
+// ─── 7. historialPrecio ───────────────────────────────────────────────────────
+// Devuelve el historial de cambios de precio de un proyecto, ordenado del más
+// reciente al más antiguo. Usada por la página de detalle para mostrar el widget.
+//
+// Por qué no es un Route Handler:
+//   Los Server Actions pueden devolver datos además de mutar estado.
+//   Llamarlos desde el Server Component (page.tsx) es más limpio que crear
+//   un Route Handler solo para leer datos.
+export async function historialPrecio(proyectoId: string): Promise<{
+  id: string
+  precio_base: number
+  precio_anterior: number | null
+  notas: string | null
+  created_at: string
+}[]> {
+  const supabase = await createSupabaseServer()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+
+  const { data } = await supabase
+    .from('precio_historial')
+    .select('id, precio_base, precio_anterior, notas, created_at')
+    .eq('proyecto_id', proyectoId)
+    .order('created_at', { ascending: false })
+    .limit(20)
+
+  return data ?? []
+}
+

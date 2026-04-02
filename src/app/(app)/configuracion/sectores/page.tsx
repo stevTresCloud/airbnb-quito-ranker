@@ -12,7 +12,7 @@ export default async function SectoresPage() {
 
   const { data } = await supabase
     .from('sectores_scoring')
-    .select('*')
+    .select('*, sc_renta, sc_seguridad, sc_plusvalia, sc_acceso, sc_servicios')
     .order('score_base', { ascending: false })
 
   return (

@@ -1207,16 +1207,23 @@ lib/__tests__/scoring.test.ts  (6 tests)
 - [ ] **Inactivity timer en /configuracion/*** — Opción C de seguridad: re-lock automático si el usuario lleva
       más de N minutos sin actividad dentro de la sección de config (complemento de la Opción A ya implementada).
       Implementar junto con el inactivity lock global de Fase de Seguridad Avanzada.
-- [ ] Historial de cambios de precio por proyecto
+- [x] **Historial de cambios de precio** ✅ (2026-04-01) — tabla `precio_historial` en Supabase.
+      `guardarEdicion` detecta si `precio_base` cambió y lo registra automáticamente.
+      Widget en tab Resumen: lista cronológica con flecha ↑/↓ y precio anterior.
+      SQL en `supabase/nice_to_have.sql`.
 - [ ] Cálculo de distancia a puntos clave (La Carolina, aeropuerto) — usando lat/lng ya almacenado
-- [ ] Exportar comparativa a PDF
+- [x] **Exportar comparativa a PDF** ✅ (2026-04-01) — botón "Exportar PDF" en `ComparadorTabla.tsx`
+      llama `window.print()`. Nav y header ocultos con `print:hidden` en `(app)/layout.tsx`.
+      Sin librerías externas.
 - [ ] Claude Vision: leer brochures subidos para extraer datos
-- [ ] Criterios de scoring personalizables — permitir crear/eliminar criterios desde `/configuracion/scoring`
-- [ ] Sub-criterios de scoring por sector — desglosar `score_ubicacion` en 5 dimensiones del CSV:
-      Renta (30pts), Seguridad (25pts), Plusvalía (20pts), Acceso (15pts), Servicios (10pts).
-      Requiere tabla `sectores_scoring_subcriterios` y UI en `/configuracion/sectores`.
-      (actualmente los 7 criterios son fijos en DB; habría que agregar formulario de alta/baja y
-      actualizar lib/scoring.ts para leer dinámicamente cualquier criterio activo)
+- [x] **Criterios de scoring personalizables** ✅ (2026-04-01) — toggle activo/inactivo y edición
+      de nombre/descripción por criterio en `/configuracion/scoring`. La suma solo valida criterios
+      activos. Nuevos Server Actions: `toggleCriterio`, `editarCriterio`.
+- [x] **Sub-criterios de scoring por sector** ✅ (2026-04-01) — 5 columnas añadidas a `sectores_scoring`:
+      `sc_renta` (0-30), `sc_seguridad` (0-25), `sc_plusvalia` (0-20), `sc_acceso` (0-15), `sc_servicios` (0-10).
+      Cuando suma > 0, `leerContextoScoring` la usa en lugar de `score_base` (fallback).
+      UI expandible en `/configuracion/sectores` — botón ▼ Sub por sector.
+      SQL en `supabase/nice_to_have.sql`. Sin cambios en `lib/scoring.ts`.
 - [ ] **Explicación de criterios en el desglose de scoring** — en `/proyecto/[id]` tab Resumen,
       agregar tooltip o acordeón expandible junto a cada criterio del desglose que explique
       qué mide, cómo se calcula y qué implica el valor obtenido.

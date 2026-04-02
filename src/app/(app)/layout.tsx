@@ -31,18 +31,20 @@ export default async function AppLayout({
     <AppProviders>
       <div className="min-h-screen bg-zinc-950 text-zinc-100 flex">
 
-        {/* Sidebar (desktop) + Bottom bar (móvil) */}
-        <Nav email={user.email ?? ''} />
+        {/* Sidebar (desktop) + Bottom bar (móvil) — ocultos en impresión */}
+        <div className="print:hidden">
+          <Nav email={user.email ?? ''} />
+        </div>
 
         {/* Área de contenido */}
-        <div className="flex-1 md:ml-56 flex flex-col min-h-screen">
+        <div className="flex-1 md:ml-56 print:ml-0 flex flex-col min-h-screen">
 
-          {/* Header móvil: solo visible en pantallas < md */}
+          {/* Header móvil: solo visible en pantallas < md — oculto en impresión */}
           {/*
             El botón 👁 (PrivacyButton) está aquí para acceso rápido en móvil.
             En desktop está en el footer del sidebar.
           */}
-          <header className="md:hidden flex items-center justify-between
+          <header className="md:hidden print:hidden flex items-center justify-between
                              px-4 py-3 border-b border-zinc-800 bg-zinc-900">
             <span className="font-semibold text-zinc-100 text-sm">
               Airbnb Quito Ranker

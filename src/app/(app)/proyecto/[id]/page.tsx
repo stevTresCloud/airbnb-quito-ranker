@@ -22,6 +22,7 @@
 import { notFound } from 'next/navigation'
 import { createSupabaseServer } from '@/lib/supabase'
 import { DetalleProyecto, type ProyectoDetalle, type CriterioRow } from './DetalleProyecto'
+import { historialPrecio } from './actions'
 import type { AdjuntoRow } from '@/components/AdjuntosPanel'
 import type { ConfiguracionRow } from '@/app/(app)/configuracion/actions'
 import type { SectorOption } from '@/types/proyecto'
@@ -37,12 +38,14 @@ export default async function ProyectoDetallePage({ params }: PageProps) {
   const supabase = await createSupabaseServer()
 
   // Fetchar todo en paralelo con Promise.all para minimizar latencia
+  // historialPrecio se llama después de conocer el id — puede ir en paralelo igual
   const [
     { data: proyecto, error: errProyecto },
     { data: criterios },
     { data: adjuntosRaw },
     { data: config },
     { data: sectoresRaw },
+    historial,
   ] = await Promise.all([
     supabase.from('proyectos').select('*').eq('id', id).single(),
     supabase.from('criterios_scoring')
@@ -58,6 +61,7 @@ export default async function ProyectoDetallePage({ params }: PageProps) {
       .select('nombre, score_base, airbnb_noche_min, airbnb_noche_max, perfil')
       .eq('activo', true)
       .order('score_base', { ascending: false }),
+    historialPrecio(id),
   ])
 
   const sectores: SectorOption[] = sectoresRaw ?? []
@@ -89,6 +93,7 @@ export default async function ProyectoDetallePage({ params }: PageProps) {
       adjuntos={adjuntos}
       config={(config ?? undefined) as ConfiguracionRow | undefined}
       sectores={sectores}
+      historialPrecios={historial}
     />
   )
 }

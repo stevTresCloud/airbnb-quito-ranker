@@ -1497,3 +1497,113 @@ una línea que mejora mucho la densidad de información en pantallas grandes:
 Los ítems del grid deben ser compactos: texto con `truncate` o `line-clamp-1`,
 tamaños de fuente reducidos (`text-xs` → `text-[11px]`), padding reducido.
 **Causa probable:** output de un comando copiado como nombre de archivo en el shell.
+
+---
+
+## Nice-to-haves complejos (2026-04-01)
+
+### Reglas de Hooks de React en componentes con listas
+
+`useActionState` (y todos los hooks) deben llamarse siempre en el **nivel raíz** de
+un componente — nunca dentro de un `.map()`, un `if`, o un loop. Esto es una regla
+fundamental de React.
+
+Cuando necesitas un formulario con Server Action por cada ítem de una lista (ej: un
+toggle por cada criterio de scoring), la solución es extraer un componente separado:
+
+```tsx
+// ❌ Incorrecto — hook dentro del map
+criterios.map(c => {
+  const [state, action] = useActionState(toggleCriterio, null)  // viola Reglas de Hooks
+  return <button key={c.id} ...>
+})
+
+// ✅ Correcto — cada criterio tiene su propio componente
+function ToggleActivoForm({ criterio }) {
+  const [, action] = useActionState(toggleCriterio, null)  // hook en nivel raíz ✓
+  return <form action={action}>...</form>
+}
+
+// En el render:
+criterios.map(c => <ToggleActivoForm key={c.id} criterio={c} />)
+```
+
+Cada componente tiene su propio "slot" de hook — React los identifica por orden de
+llamada, no por identidad. Extraer componentes es la forma idiomática de usar hooks
+con colecciones.
+
+### Exportar PDF sin librerías — `window.print()` + Tailwind `print:`
+
+El navegador ya tiene un motor de impresión que puede "imprimir a PDF". No hace falta
+jsPDF ni html2canvas para casos simples.
+
+Flujo:
+1. Botón llama `window.print()`
+2. El navegador abre el diálogo de impresión
+3. El usuario elige "Guardar como PDF" como destino
+
+Control de layout en impresión con Tailwind:
+```tsx
+// Ocultar en impresión
+<div className="print:hidden">...</div>
+
+// Ajustar márgenes
+<div className="md:ml-56 print:ml-0">...</div>
+
+// En layout.tsx: quitar el sidebar
+<div className="print:hidden">
+  <Nav ... />
+</div>
+```
+
+`print:` es un variante de Tailwind que aplica clases solo cuando `@media print` está activo.
+
+### Historial inmutable con detección de cambio en el servidor
+
+Para auditoría (precio_historial), el patrón correcto en Next.js es:
+
+1. Antes del UPDATE, leer el valor actual
+2. Si cambió, INSERT en la tabla de historial
+3. El historial es solo INSERT — nunca se borra ni actualiza
+
+```typescript
+// Leer precio actual
+const { data: actual } = await supabase.from('proyectos').select('precio_base').eq('id', id).single()
+
+// UPDATE normal
+await supabase.from('proyectos').update({ precio_base: nuevoPrecio }).eq('id', id)
+
+// Log solo si cambió
+if (actual && actual.precio_base !== nuevoPrecio) {
+  await supabase.from('precio_historial').insert({
+    proyecto_id: id,
+    precio_base: nuevoPrecio,
+    precio_anterior: actual.precio_base,
+  })
+}
+```
+
+### Sub-criterios sin nueva tabla — columnas en tabla existente
+
+Cuando los sub-criterios son un desglose fijo del score principal (no dinámico),
+agregar columnas a la tabla existente es más simple que crear una tabla separada:
+
+```sql
+alter table sectores_scoring
+  add column if not exists sc_renta     integer not null default 0,
+  add column if not exists sc_seguridad integer not null default 0,
+  ...
+```
+
+Ventajas vs tabla separada:
+- Sin JOINs extra
+- Una sola fila = toda la info del sector
+- El fallback (sub=0 → usar score_base) es trivial en el servidor:
+
+```typescript
+const subTotal = (s.sc_renta ?? 0) + (s.sc_seguridad ?? 0) + ...
+scores_sectores[s.nombre] = subTotal > 0 ? subTotal : s.score_base
+```
+
+La nueva tabla tiene sentido si los sub-criterios fueran dinámicos (creados por el
+usuario). Para una estructura fija de 5 dimensiones, las columnas son la opción correcta.

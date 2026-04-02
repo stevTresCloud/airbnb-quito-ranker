@@ -86,3 +86,56 @@ export async function guardarPesos(
   revalidatePath('/configuracion')
   return { ok: true }
 }
+
+// ─── Activar / desactivar criterio ───────────────────────────────────────────
+// Permite excluir un criterio del ranking sin borrarlo de la DB.
+// El peso del criterio desactivado queda en 0 efectivo — los pesos de los demás
+// no se redistribuyen automáticamente; el usuario debe reajustarlos manualmente.
+export async function toggleCriterio(
+  _prevState: ScoringActionState,
+  formData: FormData
+): Promise<ScoringActionState> {
+  const supabase = await createSupabaseServer()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: 'No autorizado' }
+
+  const id     = formData.get('id') as string
+  const activo = formData.get('activo') === 'true'  // valor que viene del form
+
+  const { error } = await supabase
+    .from('criterios_scoring')
+    .update({ activo, updated_at: new Date().toISOString() })
+    .eq('id', id)
+
+  if (error) return { ok: false, error: error.message }
+
+  revalidatePath('/configuracion/scoring')
+  revalidatePath('/')
+  return { ok: true }
+}
+
+// ─── Editar nombre y descripción de un criterio ───────────────────────────────
+export async function editarCriterio(
+  _prevState: ScoringActionState,
+  formData: FormData
+): Promise<ScoringActionState> {
+  const supabase = await createSupabaseServer()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { ok: false, error: 'No autorizado' }
+
+  const id          = formData.get('id') as string
+  const nombre      = (formData.get('nombre') as string | null)?.trim()
+  const descripcion = (formData.get('descripcion') as string | null)?.trim() || null
+
+  if (!nombre) return { ok: false, error: 'El nombre no puede estar vacío' }
+
+  const { error } = await supabase
+    .from('criterios_scoring')
+    .update({ nombre, descripcion, updated_at: new Date().toISOString() })
+    .eq('id', id)
+
+  if (error) return { ok: false, error: error.message }
+
+  revalidatePath('/configuracion/scoring')
+  return { ok: true }
+}
