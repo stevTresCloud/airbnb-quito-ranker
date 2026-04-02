@@ -1607,3 +1607,53 @@ scores_sectores[s.nombre] = subTotal > 0 ? subTotal : s.score_base
 
 La nueva tabla tiene sentido si los sub-criterios fueran dinámicos (creados por el
 usuario). Para una estructura fija de 5 dimensiones, las columnas son la opción correcta.
+
+---
+
+## Cierre de sesión — verificación de completitud (2026-04-02)
+
+### Por qué revisar la sesión anterior antes de cerrar
+
+Al retomar trabajo entre sesiones, es normal que código quede incompleto:
+la IA genera archivos en orden, y si la sesión se corta (contexto lleno, tiempo,
+redirección) algunos archivos pueden estar a medias.
+
+**Checklist mínimo al cerrar cualquier sesión:**
+
+```bash
+# 1. TypeScript — detecta errores de tipo sin compilar
+npx tsc --noEmit
+
+# 2. Build completo — lo que TypeScript no ve
+npm run build
+
+# 3. Grep de las claves nuevas — verifica que el código llegó a todos los callers
+grep -r "nueva_funcion\|nueva_tabla" src/
+```
+
+En este caso, el SQL `nice_to_have.sql` estaba creado pero los 4 archivos de código
+que debían usar las nuevas columnas (`SectoresForm.tsx`, `sectores/actions.ts`,
+`sectores/page.tsx`, `leerContextoScoring`) no habían sido modificados todavía.
+
+El build pasó verde de todas formas (las columnas eran opcionalmente seleccionadas),
+pero la feature no funcionaba. El grep fue el indicador definitivo.
+
+### Columnas nullable vs columnas con DEFAULT en SQL
+
+Cuando se añaden columnas a una tabla existente con `ALTER TABLE ... ADD COLUMN`,
+usar `NOT NULL DEFAULT 0` es seguro porque PostgreSQL rellenará automáticamente
+las filas existentes con 0. Sin default, habría que hacer un UPDATE manual primero.
+
+```sql
+-- ✅ Seguro en tabla existente con datos
+alter table sectores_scoring
+  add column if not exists sc_renta integer not null default 0;
+
+-- ❌ Fallaría en tabla con datos existentes
+alter table sectores_scoring
+  add column if not exists sc_renta integer not null;
+-- ERROR: column "sc_renta" of relation contains null values
+```
+
+`IF NOT EXISTS` hace el script idempotente — se puede ejecutar dos veces sin error,
+útil para migraciones aplicadas manualmente en Supabase.

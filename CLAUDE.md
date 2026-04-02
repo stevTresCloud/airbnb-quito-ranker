@@ -1199,42 +1199,47 @@ lib/__tests__/scoring.test.ts  (6 tests)
 - [ ] Campo "Teléfono / WhatsApp" ocupa solo su celda (no desborda a la columna siguiente)
 - [ ] Tab Adjuntos con varios adjuntos: se ve cuadrícula (2 columnas en móvil, 3 en desktop), nombre truncado
 
-### Nice-to-have (post-MVP)
-- [x] **Calculadora bidireccional de porcentajes de pago** ✅ (2026-04-01) — inputs controlados en sub-tab Pago;
-      monto calculado en vivo junto a cada %; indicador verde/rojo de suma (igual a pesos de scoring).
-- [x] **Preview inline de adjuntos** ✅ (2026-04-01) — clic en "Ver" abre modal overlay con `<img>` (foto/render)
-      o `<iframe>` (PDF). Link "Abrir en nueva pestaña" disponible dentro del modal. Sin librerías externas.
-- [ ] **Inactivity timer en /configuracion/*** — Opción C de seguridad: re-lock automático si el usuario lleva
-      más de N minutos sin actividad dentro de la sección de config (complemento de la Opción A ya implementada).
-      Implementar junto con el inactivity lock global de Fase de Seguridad Avanzada.
-- [x] **Historial de cambios de precio** ✅ (2026-04-01) — tabla `precio_historial` en Supabase.
-      `guardarEdicion` detecta si `precio_base` cambió y lo registra automáticamente.
-      Widget en tab Resumen: lista cronológica con flecha ↑/↓ y precio anterior.
-      SQL en `supabase/nice_to_have.sql`.
-- [ ] Cálculo de distancia a puntos clave (La Carolina, aeropuerto) — usando lat/lng ya almacenado
-- [x] **Exportar comparativa a PDF** ✅ (2026-04-01) — botón "Exportar PDF" en `ComparadorTabla.tsx`
-      llama `window.print()`. Nav y header ocultos con `print:hidden` en `(app)/layout.tsx`.
-      Sin librerías externas.
-- [ ] Claude Vision: leer brochures subidos para extraer datos
-- [x] **Criterios de scoring personalizables** ✅ (2026-04-01) — toggle activo/inactivo y edición
-      de nombre/descripción por criterio en `/configuracion/scoring`. La suma solo valida criterios
-      activos. Nuevos Server Actions: `toggleCriterio`, `editarCriterio`.
-- [x] **Sub-criterios de scoring por sector** ✅ (2026-04-01) — 5 columnas añadidas a `sectores_scoring`:
+**Smoke tests — Nice-to-have Lote 2:**
+- [ ] `/comparar` con 2+ proyectos → botón "Exportar PDF" visible → clic → diálogo de impresión abre sin nav ni botones
+- [ ] `/configuracion/sectores` → cualquier sector → botón "▼ Sub" → se expande con 5 inputs (Renta/Seg/Plus/Acceso/Serv)
+- [ ] Editar sub-criterios de "Quicentro" → suma aparece en tiempo real (badge "⬡ sub-score: Xpts") → "Guardar cambios"
+- [ ] Editar precio de un proyecto existente → "Guardar" → tab Resumen → aparece sección "Historial de precio" con flecha ↑/↓
+- [ ] `/configuracion/scoring` → criterio "Precio por m²" → botón "✓ Activo" → pasa a "✗ Inactivo" → input de peso desaparece
+- [ ] Con un criterio inactivo, ajustar pesos activos hasta sumar 100% → "Guardar pesos" funciona sin error
+- [ ] Criterio "ROI" → ✏ → se abre formulario inline → cambiar descripción → "Guardar" → descripción actualizada
+
+### Nice-to-have — Lote 1 (simples, sin schema) ✅ CERRADO (2026-04-01)
+- [x] **Calculadora bidireccional de porcentajes de pago** — inputs controlados en sub-tab Pago;
+      monto calculado en vivo junto a cada %; indicador verde/rojo de suma.
+- [x] **Preview inline de adjuntos** — clic en "Ver" abre modal overlay con `<img>` o `<iframe>`.
+      Link "Abrir en nueva pestaña" disponible. Sin librerías externas.
+- [x] **Columnas ordenables en tabla de ranking** — click en header ordena ASC/DESC;
+      `useState` de `sortKey` + `sortDir` en `RankingDashboard.tsx`. Sin backend.
+- [x] **Selector de columnas en tabla de ranking** — botón ⚙ con checkboxes; estado en `localStorage`.
+- [x] **Explicación de criterios en desglose de scoring** — acordeón expandible en tab Resumen
+      por cada criterio (qué mide, cómo se calcula, qué implica). Solo UI, sin cambios de lógica.
+- [x] **Reordenar criterios por peso** — al guardar pesos, segundo UPDATE reordena `orden` en DB.
+
+### Nice-to-have — Lote 2 (complejos, schema + lógica) ✅ CERRADO (2026-04-02)
+> Commit `668bbd5`. SQL ejecutado en Supabase ✅ (`supabase/nice_to_have.sql`).
+
+- [x] **Sub-criterios de scoring por sector** — 5 columnas en `sectores_scoring`:
       `sc_renta` (0-30), `sc_seguridad` (0-25), `sc_plusvalia` (0-20), `sc_acceso` (0-15), `sc_servicios` (0-10).
-      Cuando suma > 0, `leerContextoScoring` la usa en lugar de `score_base` (fallback).
-      UI expandible en `/configuracion/sectores` — botón ▼ Sub por sector.
-      SQL en `supabase/nice_to_have.sql`. Sin cambios en `lib/scoring.ts`.
-- [ ] **Explicación de criterios en el desglose de scoring** — en `/proyecto/[id]` tab Resumen,
-      agregar tooltip o acordeón expandible junto a cada criterio del desglose que explique
-      qué mide, cómo se calcula y qué implica el valor obtenido.
-      No requiere cambios de schema ni de lógica — solo UI educativa.
-- [ ] **Reordenar criterios de scoring por peso** — en `/configuracion/scoring`, al guardar nuevos pesos,
-      reordenar visualmente los criterios de mayor a menor peso (actualizar campo `orden` en DB).
-      Actualmente el orden es fijo. Implementar tras el guardado exitoso con un segundo UPDATE.
-- [ ] **Columnas ordenables en la tabla de ranking** — presionar el título de una columna ordena
-      las filas de mayor a menor (y viceversa con segundo clic). Implementar con `useState` de
-      `sortKey` + `sortDir` en `RankingDashboard.tsx`. No requiere cambios de backend.
-- [ ] **Selector de columnas en la tabla de ranking** (estilo Odoo) — botón ⚙ que despliega
-      un menú con checkboxes para mostrar/ocultar columnas (precio, cuota, área, sector, etc.).
-      Estado persistido en `localStorage` para que la preferencia sobreviva recargas.
-      No requiere cambios de backend.
+      Cuando suma > 0, `leerContextoScoring` la usa en lugar de `score_base` (fallback automático).
+      UI expandible en `/configuracion/sectores` con botón ▼ Sub por sector, barras visuales
+      proporcionales y total en tiempo real. Sin cambios en `lib/scoring.ts`.
+- [x] **Historial de cambios de precio** — tabla `precio_historial` (proyecto_id, precio_base,
+      precio_anterior, created_at). `guardarEdicion` detecta el cambio y registra automáticamente.
+      Widget en tab Resumen de `/proyecto/[id]`: lista cronológica con flecha ↑/↓.
+- [x] **Criterios de scoring personalizables** — toggle activo/inactivo + edición inline de
+      nombre/descripción en `/configuracion/scoring`. Suma 100% solo valida criterios activos.
+      Nuevos Server Actions: `toggleCriterio`, `editarCriterio`.
+- [x] **Exportar comparativa a PDF** — botón "Exportar PDF" en `ComparadorTabla.tsx` →
+      `window.print()`. Nav y tfoot ocultos con `print:hidden`. Sin librerías externas.
+
+### Nice-to-have — Pendientes (sin fecha)
+- [ ] **Inactivity timer en /configuracion/*** — re-lock automático tras N min de inactividad.
+      Implementar junto con el inactivity lock global (Fase de Seguridad Avanzada).
+- [ ] **Cálculo de distancia a puntos clave** — La Carolina, aeropuerto — usando lat/lng almacenado.
+- [ ] **Claude Vision: leer brochures** — analizar PDFs subidos para extraer datos del proyecto.
+- [ ] **`recalcularRanking` real** — actualmente es un stub; implementar batch recalc masivo.
