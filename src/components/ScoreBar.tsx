@@ -5,6 +5,7 @@
 interface Props {
   score: number | null
   mostrarNumero?: boolean
+  soloNumero?: boolean
   className?: string
 }
 
@@ -20,8 +21,11 @@ function colorTextoPorScore(score: number): string {
   return 'text-red-400'
 }
 
-export function ScoreBar({ score, mostrarNumero = true, className = '' }: Props) {
+export function ScoreBar({ score, mostrarNumero = true, soloNumero = false, className = '' }: Props) {
   if (score === null || score === undefined) {
+    if (soloNumero) {
+      return <span className={`text-xs font-mono font-semibold text-zinc-600 ${className}`}>—</span>
+    }
     return (
       <div className={`flex items-center gap-2 ${className}`}>
         <div className="flex-1 h-2 bg-zinc-800 rounded-full" />
@@ -31,6 +35,14 @@ export function ScoreBar({ score, mostrarNumero = true, className = '' }: Props)
   }
 
   const pct = Math.min(100, Math.max(0, score))
+
+  if (soloNumero) {
+    return (
+      <span className={`text-sm font-mono font-semibold ${colorTextoPorScore(pct)} ${className}`}>
+        {Math.round(pct)}
+      </span>
+    )
+  }
 
   return (
     <div className={`flex items-center gap-2 ${className}`}>

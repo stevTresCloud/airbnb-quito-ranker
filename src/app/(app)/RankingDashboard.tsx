@@ -625,9 +625,10 @@ function FilaRanking({ proyecto: p, posicion, seleccionado, deshabilitado, onTog
         </div>
       </td>
 
-      {/* Score con barra */}
+      {/* Score con barra (desktop) / solo número (móvil) */}
       <td className="px-4 py-3 w-40">
-        <ScoreBar score={p.score_total} />
+        <ScoreBar score={p.score_total} className="hidden sm:flex" />
+        <ScoreBar score={p.score_total} soloNumero className="sm:hidden" />
       </td>
 
       {/* ROI */}
@@ -704,17 +705,16 @@ export default function RankingDashboard({ proyectos }: Props) {
   // Ordenamiento de la tabla
   const [sortKey, setSortKey] = useState<SortKey>('score_total')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
-  // Columnas visibles — se inicia con defaults para evitar hydration mismatch SSR/localStorage
-  const [colsVisibles, setColsVisibles] = useState<Set<ColId>>(new Set(COLS_DEFAULT))
+  // Columnas visibles — inicialización lazy desde localStorage (client-only, evita useEffect)
+  const [colsVisibles, setColsVisibles] = useState<Set<ColId>>(() => {
+    if (typeof window === 'undefined') return new Set(COLS_DEFAULT)
+    try {
+      const saved = localStorage.getItem('ranking_cols')
+      if (saved) return new Set(JSON.parse(saved) as ColId[])
+    } catch { /* ignora JSON inválido */ }
+    return new Set(COLS_DEFAULT)
+  })
   const router = useRouter()
-
-  // Sincronizar columnas visibles con localStorage después del montaje (client-only)
-  useEffect(() => {
-    const saved = localStorage.getItem('ranking_cols')
-    if (saved) {
-      try { setColsVisibles(new Set(JSON.parse(saved) as ColId[])) } catch { /* ignora JSON inválido */ }
-    }
-  }, [])
 
   function toggleSeleccion(id: string) {
     setSeleccionados(prev => {
