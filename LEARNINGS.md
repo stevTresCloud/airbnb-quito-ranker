@@ -1403,4 +1403,97 @@ como historial de qué cambió en cada fase.
 
 En el commit de Fase 6 quedaron archivos con nombres que eran fragmentos de texto
 (probablemente del prompt de esa sesión). Se eliminaron 8 archivos de la raíz.
+
+---
+
+## Fase 8 — Fixes Móvil (2026-04-01)
+
+### Hover no existe en pantallas táctiles
+
+`opacity-0 group-hover:opacity-100` es un patrón útil en desktop para revelar
+acciones al pasar el mouse. En móvil, ese elemento nunca es visible porque no
+hay evento `hover` en touch. La solución estándar en Tailwind es usar prefijos
+responsivos para que el comportamiento sea distinto por breakpoint:
+
+```tsx
+// Antes: invisible en móvil
+className="opacity-0 group-hover:opacity-100"
+
+// Después: visible siempre en móvil, hover-only en desktop (md+)
+className="md:opacity-0 md:group-hover:opacity-100"
+```
+
+También se puede agregar estilos solo en móvil con el patrón inverso:
+`bg-zinc-700 md:bg-transparent` — fondo gris en móvil, transparente en desktop.
+
+### viewport meta tag en Next.js
+
+Next.js inyecta automáticamente `<meta name="viewport" content="width=device-width, initial-scale=1">`.
+Sin embargo, si el contenido de la página desborda el ancho del viewport (por ejemplo,
+un `flex` sin `flex-wrap` que es más ancho que la pantalla), el navegador móvil
+puede reducir el zoom automáticamente para que todo quepa — lo cual hace todo pequeño.
+
+La doble solución:
+1. **CSS:** `flex-wrap` en contenedores que pueden desbordar en pantallas pequeñas.
+2. **Explícito:** Declarar `export const viewport = { width: 'device-width', initialScale: 1 }`
+   en `app/layout.tsx` para asegurarse de que Next.js siempre lo incluya.
+
+```ts
+// app/layout.tsx
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+}
+```
+
+### Exportar componentes de un archivo que ya exporta otros
+
+`Nav.tsx` tenía varios botones ya exportados (`PrivacyButton`, `RecalcularButton`,
+`ThemeButton`). Para agregar el nuevo `LogoutButton` al header móvil sin duplicar
+el Server Action, simplemente se crea el componente en el mismo archivo y se exporta:
+
+```ts
+// Nav.tsx — agregar al final del grupo de exports
+export { LogoutButton }
+```
+
+```ts
+// layout.tsx — importar junto a los demás
+import { Nav, PrivacyButton, RecalcularButton, ThemeButton, LogoutButton } from '@/components/Nav'
+```
+
+El patrón "un archivo de componentes de nav que exporta varios botones" es común
+en apps Next.js — evita crear un archivo por cada botón pequeño.
+
+### accent-color en checkboxes
+
+La propiedad CSS `accent-color` (que Tailwind expone como `accent-{color}`) controla
+el color del checkbox nativo del sistema operativo cuando está marcado.
+
+- `accent-zinc-300` (gris claro): difícil de ver en modo oscuro, invisible en modo claro (filter invert).
+- `accent-indigo-500` (azul-violeta): contraste bueno en fondo oscuro y sobrevive el `filter: invert(1) hue-rotate(180deg)` del modo claro de esta app.
+
+```tsx
+// Antes
+className="w-4 h-4 rounded border-zinc-600 bg-zinc-800 accent-zinc-300"
+
+// Después
+className="w-4 h-4 rounded border-zinc-600 bg-zinc-800 accent-indigo-500"
+```
+
+### Grid responsive para listas de ítems
+
+Cambiar una lista vertical (`space-y-2`) a cuadrícula responsive es un cambio de
+una línea que mejora mucho la densidad de información en pantallas grandes:
+
+```tsx
+// Antes: lista vertical
+<ul className="space-y-2">
+
+// Después: cuadrícula 1→2→3 columnas según pantalla
+<ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+```
+
+Los ítems del grid deben ser compactos: texto con `truncate` o `line-clamp-1`,
+tamaños de fuente reducidos (`text-xs` → `text-[11px]`), padding reducido.
 **Causa probable:** output de un comando copiado como nombre de archivo en el shell.

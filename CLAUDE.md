@@ -898,6 +898,14 @@ Verificar el resultado en **https://airbnb-quito-ranker.vercel.app**
 - [x] Pins aparecen en el mapa con el color correcto según score
 - [x] Click en pin abre popup con datos del proyecto
 
+**Fase 8 — Fixes Móvil** ✅ COMPLETADA (2026-04-01)
+- [x] Botón Salir visible en móvil (LogoutButton en header móvil)
+- [x] Botón "Ver →" siempre visible en móvil (sin hover)
+- [x] Header de ranking con flex-wrap + viewport meta (sin zoom forzado)
+- [x] Checkboxes con accent-indigo-500 (mejor contraste en modo claro y oscuro)
+- [x] Campo teléfono en formulario sin BtnWhatsApp inline (corrige layout 3 cols)
+- [x] Adjuntos en cuadrícula grid-cols-1/2/3 con cards compactos
+
 ---
 
 ## Checklist pre-producción
@@ -1171,6 +1179,25 @@ lib/__tests__/scoring.test.ts  (6 tests)
 - `MapContainer` necesita `height` explícito vía `style={{ height: 500 }}`
 - CSP en `next.config.ts` debe incluir `*.tile.openstreetmap.org` en `img-src` y `connect-src`
 - Centro del mapa: Parque La Carolina `[-0.183, -78.487]`, zoom 14
+
+### Fase 8 — Fixes Móvil ✅ COMPLETADA (2026-04-01)
+
+6 bugs detectados en dispositivo real (capturas de pantalla). Sin cambios de schema.
+
+- [x] **Bug 6 — Logout:** `LogoutButton` exportado de `Nav.tsx`; agregado al header móvil en `(app)/layout.tsx`. Elimina email visible del header (menos ruido).
+- [x] **Bug 2 — "Ver →":** Clases `md:opacity-0 md:group-hover:opacity-100` + fondo `bg-zinc-700` en móvil → siempre visible en touch, hover-only en desktop. (`RankingDashboard.tsx`)
+- [x] **Bug 1 — Zoom forzado:** `flex-wrap` en el contenedor título+botones del ranking + `export const viewport` en `app/layout.tsx`. (`RankingDashboard.tsx`, `app/layout.tsx`)
+- [x] **Bug 4 — Checkboxes:** `accent-indigo-500` reemplaza `accent-zinc-300` en `CheckboxField` y checkbox de amoblado. (`DetalleProyecto.tsx`)
+- [x] **Bug 3 — Teléfono 3 cols:** Removido `BtnWhatsApp` del campo de edición; el botón sigue disponible en tab Resumen. (`DetalleProyecto.tsx`)
+- [x] **Bug 5 — Adjuntos:** `<ul>` → `grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3`; `AdjuntoItem` compacto con descripción `truncate`. (`AdjuntosPanel.tsx`)
+
+**Smoke tests — Fase 8:**
+- [ ] Header móvil muestra ícono de logout → tocarlo cierra sesión y redirige a /login
+- [ ] En tabla de ranking (móvil), columna derecha muestra botón "Ver →" con fondo gris → toca → abre detalle
+- [ ] Pantalla de ranking se ve completa sin hacer zoom (títulos y botones hacen wrap si no caben)
+- [ ] En formulario de edición → Tab Unidad → checkboxes de características tienen check azul/índigo visible
+- [ ] Campo "Teléfono / WhatsApp" ocupa solo su celda (no desborda a la columna siguiente)
+- [ ] Tab Adjuntos con varios adjuntos: se ve cuadrícula (2 columnas en móvil, 3 en desktop), nombre truncado
 
 ### Nice-to-have (post-MVP)
 - [x] **Calculadora bidireccional de porcentajes de pago** ✅ (2026-04-01) — inputs controlados en sub-tab Pago;
