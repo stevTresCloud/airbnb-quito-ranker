@@ -181,6 +181,13 @@ export default function ConfiguracionForm({ config }: { config: ConfiguracionRow
           >
             Pesos del scoring →
           </Link>
+          <Link
+            href="/configuracion/seguridad"
+            className="text-sm text-amber-400 hover:text-amber-300 transition-colors
+                       border border-amber-900 hover:border-amber-700 rounded-lg px-3 py-2"
+          >
+            Seguridad →
+          </Link>
         </div>
       </div>
 
