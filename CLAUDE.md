@@ -130,6 +130,7 @@ create table configuracion (
   anos_credito_default    integer default 6,
   anos_proyeccion         integer default 5,
   costo_amoblado_default  numeric default 6000,  -- inversión estimada para amueblar el depto antes de operar
+  seguro_mensual_default  numeric default 40,    -- costo fijo mensual del seguro exigido por el banco
 
   -- Estructura de pago por defecto (aplica a todos los proyectos salvo override)
   reserva_default                         numeric default 2000,  -- monto fijo de separación
@@ -241,10 +242,13 @@ create table proyectos (
 
   -- Factor subjetivo
   confianza_subjetiva integer,           -- 1 a 5
+  walkability         integer,           -- 1 a 5 (walk score subjetivo: cercanía a comercios/transporte)
   confianza_notas text,                  -- por qué: "el arquitecto mostró planos reales"
 
   -- Precio
-  precio_base     numeric not null,      -- precio dpto sin parqueadero
+  precio_base     numeric not null,      -- precio dpto sin parqueadero (original, sin descuento)
+  descuento_valor numeric default 0,    -- monto o porcentaje de descuento (0 = sin descuento)
+  descuento_tipo  text default 'monto', -- 'monto' (USD fijo) o 'porcentaje' (% del precio_base)
 
   -- Estructura de pago (monto y porcentaje son bidireccionales; suma entrada+durante+contra = 100%)
   -- si son null, toman los defaults de configuracion
@@ -284,6 +288,7 @@ create table proyectos (
 
   -- Costos fijos mensuales del edificio
   alicuota_mensual      numeric default 0,       -- cuota de mantenimiento mensual (sale del flujo siempre)
+  seguro_mensual        numeric,                 -- seguro hipotecario mensual (null = usa seguro_mensual_default de config)
 
   -- Estado de construcción
   avance_obra_porcentaje numeric default 0,      -- 0=planos, 100=entregado. Afecta score de riesgo.
@@ -393,10 +398,18 @@ create policy "solo autenticado" on adjuntos using (auth.role() = 'authenticated
 ```typescript
 // lib/calculos.ts — todo cálculo es TypeScript puro, sin IA
 
-// 1. Precio y área
+// 0. Descuento sobre precio base
+// Se aplica ANTES de todo cálculo. precio_base original se preserva en DB.
+precio_base_efectivo = descuento_valor > 0
+  ? (descuento_tipo === 'porcentaje'
+      ? precio_base * (1 - descuento_valor / 100)
+      : precio_base - descuento_valor)
+  : precio_base
+
+// 1. Precio y área (todo usa precio_base_efectivo, no precio_base)
 area_total_m2   = area_interna_m2 + area_balcon_m2
-precio_total    = precio_base + costo_parqueadero
-precio_m2       = precio_base / area_interna_m2   // SIEMPRE sobre área interna, nunca total
+precio_total    = precio_base_efectivo + costo_parqueadero
+precio_m2       = precio_base_efectivo / area_interna_m2   // SIEMPRE sobre área interna, nunca total
 
 // 1a. Estructura de pago (con fallback a defaults de configuracion)
 reserva_efectiva = reserva ?? reserva_default
@@ -452,11 +465,14 @@ ingreso_bruto_mensual = precio_noche_estimado * 30 * (ocupacion_estimada / 100)
 gastos_operativos     = ingreso_bruto_mensual * (pct_gastos_efectivo / 100)
 ingreso_neto_mensual  = ingreso_bruto_mensual - gastos_operativos
 
-// 4. Flujo mensual (alícuota + cuota banco + cuota préstamo amoblado si aplica) (alicuota se descuenta siempre, independiente de Airbnb)
+// 3b. Seguro hipotecario
+seguro_mensual_efectivo = seguro_mensual ?? seguro_mensual_default  // default $40
+
+// 4. Flujo mensual (alícuota + seguro + cuota banco + cuota préstamo amoblado si aplica)
 sueldo_disponible    = sueldo_neto * (porcentaje_ahorro / 100)
-flujo_sin_airbnb     = sueldo_disponible - cuota_mensual - alicuota_mensual - cuota_prestamo_amoblado
-flujo_con_airbnb     = sueldo_disponible + ingreso_neto_mensual - cuota_mensual - alicuota_mensual - cuota_prestamo_amoblado
-obligacion_mensual   = cuota_mensual + alicuota_mensual + cuota_prestamo_amoblado
+flujo_sin_airbnb     = sueldo_disponible - cuota_mensual - alicuota_mensual - seguro_mensual_efectivo - cuota_prestamo_amoblado
+flujo_con_airbnb     = sueldo_disponible + ingreso_neto_mensual - cuota_mensual - alicuota_mensual - seguro_mensual_efectivo - cuota_prestamo_amoblado
+obligacion_mensual   = cuota_mensual + alicuota_mensual + seguro_mensual_efectivo + cuota_prestamo_amoblado
 cobertura_sin_airbnb = (sueldo_disponible / obligacion_mensual) * 100
 cobertura_con_airbnb = ((sueldo_disponible + ingreso_neto_mensual) / obligacion_mensual) * 100
 
@@ -493,6 +509,7 @@ score_roi          → escala absoluta: Math.min(100, round(roi_anual / 16 * 100
 score_ubicacion    → score base del sector
                      + bonus piso alto (piso >= 8: +5pts, piso >= 12: +10pts)
                      + bonus orientación (norte/este: +5pts)
+                     + bonus walkability (1-5 × 3pts, max +15pts)
 score_constructora → fiabilidad: reputada=80 | conocida_sin_retrasos=60 |
                                   desconocida=40 | conocida_con_retrasos=20
                      + bonus años (>20 años: +10pts, >10 años: +5pts)
@@ -504,7 +521,8 @@ score_equipamiento → parqueadero=+50, bodega=+30, ambos=+20 bonus (máx 100)
 score_precio_m2    → inverso normalizado sobre area_interna_m2 (NO el área total con balcón)
 score_calidad      → materiales (lujo=40, premium=30, estándar=20, básico=10)
                      + bonus amenidades premium (spa/piscina: +15, gimnasio: +8,
-                       coworking: +7, bbq/rooftop: +6, jacuzzi: +5, sauna/turco: +5,
+                       coworking: +7, bbq/rooftop: +6, club_house/skybar: +6,
+                       jacuzzi: +5, sauna/turco: +5,
                        otros: +2 c/u)
                      + bonus unidad (balcón: +5, cocina americana: +3,
                        1.5+ baños: +5, zona lavandería: +3, puerta seguridad: +2)
@@ -613,28 +631,43 @@ Granda Centeno | Bellavista | Iñaquito | El Batán | La Floresta | Guangüiltag
 // para que el usuario los verifique antes de guardar.
 ```
 
-### Prompt 3: Análisis Narrativo por Proyecto
+### Prompt 3: Análisis Narrativo por Proyecto (con auditoría de realismo)
 
 ```typescript
-// app/api/analizar/route.ts
+// proyecto/[id]/actions.ts → analizarConIA()
 // Se llama SOLO cuando el usuario presiona "Analizar con IA"
+// Envía: datos del proyecto + benchmarks del sector (de la DB) + ubicación (lat/lng > dirección > sector)
 
-const SYSTEM_PROMPT_ANALISIS = `
-Eres un experto en inversión inmobiliaria en Quito, Ecuador, especializado en
-rentabilidad Airbnb para el sector norte de la ciudad.
+// Output JSON con 7 campos:
+// 1. auditoria: Auditoría de realismo — cruza datos ingresados vs benchmarks del sector
+//    (precio_noche vs airbnb_min/max, ocupación, plusvalía, precio_m2, meses vs avance obra)
+// 2. fortaleza: Fortaleza clave para Airbnb (1 oración)
+// 3. riesgo: Riesgo principal (1 oración)
+// 4. recomendacion: Recomendación de inversión (1-2 oraciones)
+// 5. alerta: Alerta crítica si aplica (vacío si no hay)
+// 6. que_preguntar: 3-5 preguntas para el vendedor
+// 7. datos_faltantes: Campos vacíos que afectan el análisis
 
-Se te proporcionan todas las métricas ya calculadas de un proyecto.
-Genera en español:
-1. fortaleza: La fortaleza clave para uso Airbnb (1 oración)
-2. riesgo: El riesgo principal (1 oración)
-3. recomendacion: Recomendación de inversión (1-2 oraciones)
-4. alerta: Alerta crítica si aplica (vacío si no hay)
+// Prioridad de ubicación para auditoría:
+// - Si tiene lat/lng → Claude razona sobre la zona específica
+// - Si no, usa dirección → contexto de calle/barrio
+// - Fallback: solo nombre del sector
+// Siempre cruza contra benchmark_sector (datos reales de sectores_scoring en DB)
+```
 
-Alertar si: ROI < 5% | cobertura con Airbnb < 100% | meses_espera > 24 |
-precio/m² muy sobre promedio | constructora con retrasos | datos críticos faltantes
+### Prompt 4: Análisis IA Comparativo (2-3 proyectos)
 
-Devuelve ÚNICAMENTE JSON válido sin markdown.
-`;
+```typescript
+// comparar/actions.ts → analizarComparacion()
+// Se llama desde ComparadorTabla cuando el usuario presiona "Análisis IA"
+// Envía: 2-3 proyectos completos + benchmarks de cada sector + config global
+// Modelo: Haiku (consistente con análisis individual)
+// Sin persistencia en DB — se genera cada vez
+
+// Output JSON con 3 campos:
+// 1. auditoria: Auditoría cruzada de realismo de CADA proyecto vs benchmarks del sector
+// 2. comparacion: Comparación directa usando datos auditados (ROI real, riesgo, flujo, trade-offs)
+// 3. veredicto: Recomendación definitiva con prioridades (flujo vs ROI vs seguridad)
 ```
 
 ---
@@ -1014,7 +1047,7 @@ Los tres métodos de ingreso rápido se muestran como tabs en `/nuevo`:
 > Las funciones son puras (input → number), los valores esperados se verifican a mano.
 
 ```
-lib/__tests__/calculos.test.ts  (11 tests)
+lib/__tests__/calculos.test.ts  (17 tests)
   ✓ precio_m2 usa area_interna_m2, nunca area_total_m2
   ✓ reserva=null → reserva_efectiva = reserva_default ($2,000)
   ✓ reserva=0 → pago_entrada_neto = monto_entrada_total (sin descuento)
@@ -1025,15 +1058,23 @@ lib/__tests__/calculos.test.ts  (11 tests)
   ✓ amoblado_financiado=false → cuota_prestamo_amoblado = 0, intereses = 0
   ✓ amoblado_financiado=true → genera cuota e intereses que reducen ganancia_neta y flujo
   ✓ amoblado_financiado=true + viene_amoblado=true → sin préstamo (no hay costo)
+  ✓ seguro_mensual=null → usa seguro_mensual_default ($40) y reduce el flujo
+  ✓ seguro_mensual explícito reemplaza el default
+  ✓ descuento_valor=0 → precio_base_efectivo = precio_base (sin cambio)
+  ✓ descuento tipo monto → reduce precio_base en USD fijos
+  ✓ descuento tipo porcentaje → reduce precio_base en %
+  ✓ descuento mejora el ROI (mismo ingreso Airbnb, menor inversión)
   ✓ aporte_propio_total no cuenta la reserva dos veces
 
-lib/__tests__/scoring.test.ts  (6 tests)
+lib/__tests__/scoring.test.ts  (8 tests)
   ✓ permite_airbnb=false → score_total = 0 (regla absoluta)
   ✓ score_total = suma ponderada correcta con 8 criterios
   ✓ score_equipamiento: ninguno=0, solo parqueadero=50, solo bodega=30, ambos=100
   ✓ score_constructora: reputada=80, con_retrasos=20
   ✓ score_entrega: 0 meses=100, 48+ meses=0
   ✓ score_confianza: confianza_subjetiva × 20
+  ✓ walkability=null → sin bonus en score_ubicacion
+  ✓ walkability 1-5 → bonus proporcional (×3 pts)
 ```
 
 - [x] Instalar Vitest (`npm install -D vitest`)

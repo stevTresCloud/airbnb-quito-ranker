@@ -28,6 +28,7 @@ const BASE: InputScoring = {
   sector: 'Iñaquito',
   piso: 5,
   orientacion: 'norte',
+  walkability: null,
   fiabilidad_constructora: 'conocida_sin_retrasos',
   anos_constructora: 12,
   proyectos_entregados: 5,
@@ -132,5 +133,22 @@ describe('scoring.ts', () => {
     }
     const sinDato = calcularScores({ ...BASE, confianza_subjetiva: null }, PESOS, [2000], SCORES_SECTORES)
     expect(sinDato.score_confianza).toBe(0)
+  })
+
+  it('walkability=null → sin bonus en score_ubicacion', () => {
+    const sinWalk = calcularScores({ ...BASE, walkability: null }, PESOS, [2000], SCORES_SECTORES)
+    const conWalk = calcularScores({ ...BASE, walkability: 5 }, PESOS, [2000], SCORES_SECTORES)
+    // walkability 5 → +15 pts de bonus
+    expect(conWalk.score_ubicacion - sinWalk.score_ubicacion).toBe(15)
+  })
+
+  it('walkability 1-5 → bonus proporcional (×3 pts)', () => {
+    const walk1 = calcularScores({ ...BASE, walkability: 1 }, PESOS, [2000], SCORES_SECTORES)
+    const walk3 = calcularScores({ ...BASE, walkability: 3 }, PESOS, [2000], SCORES_SECTORES)
+    const walk5 = calcularScores({ ...BASE, walkability: 5 }, PESOS, [2000], SCORES_SECTORES)
+    const base = calcularScores({ ...BASE, walkability: null }, PESOS, [2000], SCORES_SECTORES)
+    expect(walk1.score_ubicacion - base.score_ubicacion).toBe(3)
+    expect(walk3.score_ubicacion - base.score_ubicacion).toBe(9)
+    expect(walk5.score_ubicacion - base.score_ubicacion).toBe(15)
   })
 })

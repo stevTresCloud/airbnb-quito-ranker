@@ -133,6 +133,8 @@ export async function guardarProyecto(
   // ── Calcular métricas financieras ──────────────────────────────────────────
   const inputCalculos: InputCalculos = {
     precio_base,
+    descuento_valor: 0,
+    descuento_tipo: 'monto' as const,
     area_interna_m2,
     area_balcon_m2: 0,
     costo_parqueadero: 0,
@@ -148,6 +150,7 @@ export async function guardarProyecto(
     amoblado_financiado: false,
     tasa_prestamo_amoblado: 12,
     meses_prestamo_amoblado: 24,
+    seguro_mensual: null,
     tiene_administracion_airbnb_incluida: false,
     porcentaje_gestion_airbnb: null,
     alicuota_mensual: 0,
@@ -165,6 +168,7 @@ export async function guardarProyecto(
     porcentaje_ahorro: config.porcentaje_ahorro,
     porcentaje_gastos_airbnb: config.porcentaje_gastos_airbnb,
     costo_amoblado_default: config.costo_amoblado_default,
+    seguro_mensual_default: config.seguro_mensual_default ?? 40,
     anos_proyeccion: config.anos_proyeccion,
   }
 
@@ -182,6 +186,7 @@ export async function guardarProyecto(
     sector,
     piso: null,
     orientacion: null,
+    walkability: null,
     fiabilidad_constructora: null,
     anos_constructora: null,
     proyectos_entregados: null,

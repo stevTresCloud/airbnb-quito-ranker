@@ -27,6 +27,7 @@ export type ConfiguracionRow = {
   porcentaje_durante_construccion_default: number
   num_cuotas_construccion_default: number
   porcentaje_contra_entrega_default: number
+  seguro_mensual_default: number
 }
 
 // Estado que devuelven las acciones — null = sin feedback aún
@@ -67,6 +68,7 @@ export async function guardarConfiguracion(
       anos_credito_default: Number(formData.get('anos_credito_default')),
       anos_proyeccion: Number(formData.get('anos_proyeccion')),
       costo_amoblado_default: Number(formData.get('costo_amoblado_default')),
+      seguro_mensual_default: Number(formData.get('seguro_mensual_default')),
       reserva_default: Number(formData.get('reserva_default')),
       porcentaje_entrada_default: entrada,
       porcentaje_durante_construccion_default: durante,

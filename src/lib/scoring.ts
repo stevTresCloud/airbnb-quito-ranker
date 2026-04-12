@@ -24,6 +24,12 @@ function scoreUbicacion(p: InputScoring, scores_sectores: Record<string, number>
   // Bonus orientación favorable para Quito (norte/este = más luz natural)
   if (p.orientacion === 'norte' || p.orientacion === 'este') score += 5
 
+  // Bonus walkability subjetivo (1-5 → +3 a +15 pts)
+  // Mide qué tan caminable es la zona: cercanía a comercios, transporte, servicios.
+  if (p.walkability !== null && p.walkability > 0) {
+    score += Math.min(5, p.walkability) * 3
+  }
+
   return Math.min(100, score)
 }
 
@@ -81,12 +87,14 @@ function scoreCalidad(p: InputScoring): number {
     score += 7
   if (amenidadesSet.has('bbq') || amenidadesSet.has('rooftop'))
     score += 6
+  if (amenidadesSet.has('club_house') || amenidadesSet.has('skybar'))
+    score += 6
   if (amenidadesSet.has('jacuzzi'))
     score += 5
   if (amenidadesSet.has('sauna') || amenidadesSet.has('turco'))
     score += 5
   // Otros no categorizados: +2 c/u (máx 5 ítems extra para evitar inflar)
-  const conocidas = new Set(['spa','piscina','infinity pool','gimnasio','gym','coworking','bbq','rooftop','jacuzzi','sauna','turco'])
+  const conocidas = new Set(['spa','piscina','infinity pool','gimnasio','gym','coworking','bbq','rooftop','club_house','skybar','jacuzzi','sauna','turco'])
   const extras = amenidades.filter(a => !conocidas.has(a.toLowerCase()))
   score += Math.min(extras.length * 2, 10)
 

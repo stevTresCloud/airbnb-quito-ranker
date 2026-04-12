@@ -7,6 +7,8 @@
 export interface InputCalculos {
   // De la fila de proyecto
   precio_base: number
+  descuento_valor: number        // 0 = sin descuento
+  descuento_tipo: 'monto' | 'porcentaje'
   area_interna_m2: number
   area_balcon_m2: number
   costo_parqueadero: number
@@ -30,6 +32,10 @@ export interface InputCalculos {
   amoblado_financiado: boolean        // true = se financia con préstamo personal
   tasa_prestamo_amoblado: number      // tasa anual del préstamo (ej: 12%)
   meses_prestamo_amoblado: number     // plazo en meses (ej: 24)
+
+  // Seguro hipotecario (costo fijo mensual exigido por el banco)
+  seguro_mensual: number | null
+  seguro_mensual_default: number
 
   // Airbnb
   tiene_administracion_airbnb_incluida: boolean
@@ -58,7 +64,8 @@ export interface InputCalculos {
 // ─── Output de calculos.ts ─────────────────────────────────────────────────────
 
 export interface MetricasCalculadas {
-  // Precio y área
+  // Precio y área (precio_base_efectivo = precio_base con descuento aplicado)
+  precio_base_efectivo: number
   area_total_m2: number
   precio_total: number
   precio_m2: number
@@ -102,6 +109,9 @@ export interface MetricasCalculadas {
   ganancia_bruta: number
   ganancia_neta: number
 
+  // Seguro hipotecario
+  seguro_mensual_efectivo: number
+
   // Préstamo amoblado (0 si no hay préstamo)
   cuota_prestamo_amoblado: number
   intereses_prestamo_amoblado: number
@@ -123,6 +133,7 @@ export interface InputScoring {
   sector: string
   piso: number | null
   orientacion: string | null
+  walkability: number | null    // 1-5 subjetivo (null = sin evaluar)
 
   // Constructora
   fiabilidad_constructora: string | null

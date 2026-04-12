@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS configuracion (
   anos_credito_default                    integer DEFAULT 6,
   anos_proyeccion                         integer DEFAULT 5,
   costo_amoblado_default                  numeric DEFAULT 6000,
+  seguro_mensual_default                  numeric DEFAULT 40,
 
   reserva_default                         numeric  DEFAULT 2000,
   porcentaje_entrada_default              numeric  DEFAULT 10,
@@ -137,10 +138,13 @@ CREATE TABLE IF NOT EXISTS proyectos (
 
   -- Factor subjetivo
   confianza_subjetiva   integer,
+  walkability           integer,
   confianza_notas       text,
 
   -- Precio
   precio_base           numeric NOT NULL,
+  descuento_valor       numeric DEFAULT 0,
+  descuento_tipo        text DEFAULT 'monto',
 
   -- Estructura de pago
   reserva                         numeric,
@@ -180,6 +184,7 @@ CREATE TABLE IF NOT EXISTS proyectos (
 
   -- Costos fijos
   alicuota_mensual      numeric DEFAULT 0,
+  seguro_mensual        numeric,
 
   -- Estado de obra
   avance_obra_porcentaje numeric DEFAULT 0,
@@ -226,6 +231,7 @@ CREATE TABLE IF NOT EXISTS proyectos (
 
   -- Análisis IA
   analisis_ia_generado  boolean DEFAULT false,
+  auditoria_ia          text,
   fortaleza_ia          text,
   riesgo_ia             text,
   recomendacion_ia      text,

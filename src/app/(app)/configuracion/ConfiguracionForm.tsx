@@ -283,6 +283,16 @@ export default function ConfiguracionForm({ config }: { config: ConfiguracionRow
             disabled={pendiente}
             privacyMode={privacy}
           />
+          <CampoNumerico
+            label="Seguro hipotecario mensual"
+            name="seguro_mensual_default"
+            defaultValue={config.seguro_mensual_default}
+            min={0}
+            step="1"
+            suffix="USD/mes"
+            disabled={pendiente}
+            privacyMode={privacy}
+          />
         </Seccion>
 
         {/* Estructura de pago — sección especial con validación de suma 100% */}

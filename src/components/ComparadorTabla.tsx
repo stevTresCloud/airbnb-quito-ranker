@@ -6,10 +6,12 @@
 //   El resaltado del ganador y el formateo son cálculos puros sin estado —
 //   toda la interactividad real está en RankingDashboard (selección de filas).
 
+import { useActionState } from 'react'
 import Link from 'next/link'
 import { ScoreBar } from '@/components/ScoreBar'
 import { SemaforoROI } from '@/components/SemaforoROI'
 import { MontoPrivado } from '@/components/MontoPrivado'
+import { analizarComparacion, type AnalisisComparativoState } from '@/app/(app)/comparar/actions'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -21,6 +23,9 @@ export type ProyectoComparar = {
   estado: string
   preferencia: string | null
   // Financiero
+  precio_base: number
+  descuento_valor: number
+  descuento_tipo: string
   precio_total: number | null
   cuota_mensual: number | null
   alicuota_mensual: number | null
@@ -30,6 +35,12 @@ export type ProyectoComparar = {
   ganancia_neta: number | null
   monto_entrada: number | null
   monto_durante_construccion: number | null
+  seguro_mensual: number | null
+  // Amoblado / préstamo de amoblado
+  amoblado_financiado: boolean
+  costo_amoblado: number | null
+  tasa_prestamo_amoblado: number | null
+  meses_prestamo_amoblado: number | null
   // Airbnb
   precio_noche_estimado: number | null
   ocupacion_estimada: number | null
@@ -44,6 +55,7 @@ export type ProyectoComparar = {
   tiene_parqueadero: boolean
   tiene_bodega: boolean
   viene_amoblado: boolean
+  walkability: number | null
   amenidades: string[] | null
   // Scores
   score_total: number | null
@@ -67,20 +79,24 @@ export type CriterioComparar = {
 interface Props {
   proyectos: ProyectoComparar[]
   criterios: CriterioComparar[]
+  ids: string[]
 }
 
 // ─── Helpers de resaltado del ganador ─────────────────────────────────────────
 //
 // mayor=true  → el mayor valor gana  (ROI, cobertura, flujo, etc.)
 // mayor=false → el menor valor gana  (precio, cuota, meses espera)
-// Devuelve el índice del ganador, o -1 si todos son iguales o nulos.
+// Devuelve un Set con los índices ganadores. Si hay empate entre 2+ valores,
+// todos los empatados se resaltan en verde. Set vacío si todos son null o < 2 valores.
 
-function idxGanador(valores: (number | null)[], mayor: boolean): number {
+function idxGanadores(valores: (number | null)[], mayor: boolean): Set<number> {
   const numericos = valores.filter((v): v is number => v !== null)
-  if (numericos.length < 2) return -1
+  if (numericos.length < 2) return new Set()
   const referencia = mayor ? Math.max(...numericos) : Math.min(...numericos)
-  if (numericos.every(v => v === referencia)) return -1
-  return valores.findIndex(v => v === referencia)
+  const indices = new Set<number>()
+  valores.forEach((v, i) => { if (v === referencia) indices.add(i) })
+  // Si TODOS son iguales y hay 2+, todos se resaltan en verde
+  return indices
 }
 
 const CELDA_GANADORA = 'bg-emerald-900/30'
@@ -101,16 +117,16 @@ function SeccionHeader({ titulo }: { titulo: string }) {
   )
 }
 
-// Fila genérica numérica con resaltado del ganador
+// Fila genérica numérica con resaltado del ganador (soporta empates)
 function Fila({
   label,
   valores,
-  ganador,
+  ganadores,
   render,
 }: {
   label: string
   valores: (number | null)[]
-  ganador: number
+  ganadores: Set<number>
   render: (v: number | null) => React.ReactNode
 }) {
   return (
@@ -122,7 +138,7 @@ function Fila({
         <td
           key={idx}
           className={`px-4 py-3 text-xs align-middle min-w-[160px] ${
-            ganador === idx ? CELDA_GANADORA : ''
+            ganadores.has(idx) ? CELDA_GANADORA : ''
           }`}
         >
           {render(v)}
@@ -132,15 +148,15 @@ function Fila({
   )
 }
 
-// Fila de ScoreBar
+// Fila de ScoreBar (soporta empates)
 function FilaScore({
   label,
   scores,
-  ganador,
+  ganadores,
 }: {
   label: string
   scores: (number | null)[]
-  ganador: number
+  ganadores: Set<number>
 }) {
   return (
     <tr className="border-t border-zinc-800/60 hover:bg-zinc-800/20 transition-colors">
@@ -151,7 +167,7 @@ function FilaScore({
         <td
           key={idx}
           className={`px-4 py-3 align-middle min-w-[160px] ${
-            ganador === idx ? CELDA_GANADORA : ''
+            ganadores.has(idx) ? CELDA_GANADORA : ''
           }`}
         >
           <ScoreBar score={s} />
@@ -182,14 +198,18 @@ function FilaBool({ label, valores }: { label: string; valores: boolean[] }) {
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
-export function ComparadorTabla({ proyectos, criterios }: Props) {
+export function ComparadorTabla({ proyectos, criterios, ids }: Props) {
+  // Server Action para análisis IA comparativo (bind de ids para pasarlos al action)
+  const analizarConIds = analizarComparacion.bind(null, ids)
+  const [iaState, iaAction, iaPending] = useActionState<AnalisisComparativoState, FormData>(analizarConIds, null)
+
   // Helper para extraer array de valores numéricos de un campo
   const get = (campo: keyof ProyectoComparar) =>
     proyectos.map(p => p[campo] as number | null)
 
-  // Ganador para campos numéricos
-  const ganador = (campo: keyof ProyectoComparar, mayor: boolean) =>
-    idxGanador(get(campo), mayor)
+  // Ganadores para campos numéricos (Set de índices — soporta empates)
+  const ganadores = (campo: keyof ProyectoComparar, mayor: boolean) =>
+    idxGanadores(get(campo), mayor)
 
   // Aporte pre-entrega = monto_entrada + monto_durante_construccion
   // (aporte_propio_total no se almacena en DB, se aproxima con estos dos campos)
@@ -198,6 +218,16 @@ export function ComparadorTabla({ proyectos, criterios }: Props) {
       ? p.monto_entrada + p.monto_durante_construccion
       : null
   )
+
+  // Cuota mensual del préstamo de amoblado (PMT calculado en cliente, no se persiste en DB)
+  const cuotaAmoblado = proyectos.map(p => {
+    if (!p.amoblado_financiado || p.viene_amoblado || !p.costo_amoblado || p.costo_amoblado <= 0) return null
+    const meses = p.meses_prestamo_amoblado ?? 24
+    if (meses <= 0) return null
+    const tasaM = (p.tasa_prestamo_amoblado ?? 12) / 100 / 12
+    if (tasaM > 0) return p.costo_amoblado * tasaM / (1 - Math.pow(1 + tasaM, -meses))
+    return p.costo_amoblado / meses
+  })
 
   // Cantidad de amenidades por proyecto (para determinar el ganador)
   const countAmenidades = proyectos.map(p => (p.amenidades ?? []).length)
@@ -210,20 +240,33 @@ export function ComparadorTabla({ proyectos, criterios }: Props) {
         <Link href="/" className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">
           ← Ranking
         </Link>
-        {/* Exportar PDF — abre el diálogo de impresión del navegador.
-            El usuario elige "Guardar como PDF" en la impresora. */}
-        <button
-          onClick={() => window.print()}
-          className="flex items-center gap-2 text-xs text-zinc-400 hover:text-zinc-100
-                     border border-zinc-700 hover:border-zinc-500 rounded-lg px-3 py-1.5
-                     transition-colors"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-          </svg>
-          Exportar PDF
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Análisis IA comparativo */}
+          <form action={iaAction}>
+            <button
+              type="submit"
+              disabled={iaPending}
+              className="flex items-center gap-2 text-xs text-violet-400 hover:text-violet-200
+                         border border-violet-800 hover:border-violet-600 rounded-lg px-3 py-1.5
+                         transition-colors disabled:opacity-50"
+            >
+              {iaPending ? 'Analizando…' : iaState?.ok ? '↻ Re-analizar con IA' : '✨ Análisis IA'}
+            </button>
+          </form>
+          {/* Exportar PDF — abre el diálogo de impresión del navegador. */}
+          <button
+            onClick={() => window.print()}
+            className="flex items-center gap-2 text-xs text-zinc-400 hover:text-zinc-100
+                       border border-zinc-700 hover:border-zinc-500 rounded-lg px-3 py-1.5
+                       transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+            </svg>
+            Exportar PDF
+          </button>
+        </div>
       </div>
 
       <h1 className="text-xl font-semibold text-zinc-100 mb-6">
@@ -267,7 +310,39 @@ export function ComparadorTabla({ proyectos, criterios }: Props) {
             <Fila
               label="Precio total"
               valores={get('precio_total')}
-              ganador={ganador('precio_total', false)}
+              ganadores={ganadores('precio_total', false)}
+              render={v => v !== null
+                ? <MontoPrivado valor={v} prefijo="$" decimales={0} className="text-zinc-300 font-mono" />
+                : <span className="text-zinc-600">—</span>
+              }
+            />
+
+            {/* Descuento — solo visible si al menos un proyecto tiene descuento */}
+            {proyectos.some(p => p.descuento_valor > 0) && (
+              <tr className="border-t border-zinc-800/60 hover:bg-zinc-800/20 transition-colors">
+                <td className="px-4 py-3 text-xs text-zinc-500 whitespace-nowrap w-40 align-middle">
+                  Descuento
+                </td>
+                {proyectos.map((p, idx) => (
+                  <td key={idx} className="px-4 py-3 text-xs align-middle min-w-[160px]">
+                    {p.descuento_valor > 0
+                      ? <span className="text-emerald-400 font-mono font-medium">
+                          {p.descuento_tipo === 'porcentaje'
+                            ? `−${p.descuento_valor}%`
+                            : <>−<MontoPrivado valor={p.descuento_valor} prefijo="$" decimales={0} /></>
+                          }
+                        </span>
+                      : <span className="text-zinc-600">—</span>
+                    }
+                  </td>
+                ))}
+              </tr>
+            )}
+
+            <Fila
+              label="Alícuota/mes"
+              valores={get('alicuota_mensual')}
+              ganadores={ganadores('alicuota_mensual', false)}
               render={v => v !== null
                 ? <MontoPrivado valor={v} prefijo="$" decimales={0} className="text-zinc-300 font-mono" />
                 : <span className="text-zinc-600">—</span>
@@ -275,19 +350,19 @@ export function ComparadorTabla({ proyectos, criterios }: Props) {
             />
 
             <Fila
-              label="Alícuota/mes"
-              valores={get('alicuota_mensual')}
-              ganador={ganador('alicuota_mensual', false)}
+              label="Seguro hipotecario"
+              valores={get('seguro_mensual')}
+              ganadores={ganadores('seguro_mensual', false)}
               render={v => v !== null
                 ? <MontoPrivado valor={v} prefijo="$" decimales={0} className="text-zinc-300 font-mono" />
-                : <span className="text-zinc-600">—</span>
+                : <span className="text-zinc-500 text-[10px]">default</span>
               }
             />
 
             <Fila
               label="Cuota mensual"
               valores={get('cuota_mensual')}
-              ganador={ganador('cuota_mensual', false)}
+              ganadores={ganadores('cuota_mensual', false)}
               render={v => v !== null
                 ? <MontoPrivado valor={v} prefijo="$" decimales={0} className="text-zinc-300 font-mono" />
                 : <span className="text-zinc-600">—</span>
@@ -300,9 +375,9 @@ export function ComparadorTabla({ proyectos, criterios }: Props) {
                 Aporte pre-entrega
               </td>
               {aportePreEntrega.map((v, idx) => {
-                const g = idxGanador(aportePreEntrega, false)
+                const g = idxGanadores(aportePreEntrega, false)
                 return (
-                  <td key={idx} className={`px-4 py-3 text-xs align-middle min-w-[160px] ${g === idx ? CELDA_GANADORA : ''}`}>
+                  <td key={idx} className={`px-4 py-3 text-xs align-middle min-w-[160px] ${g.has(idx) ? CELDA_GANADORA : ''}`}>
                     {v !== null
                       ? <MontoPrivado valor={v} prefijo="$" decimales={0} className="text-zinc-300 font-mono" />
                       : <span className="text-zinc-600">—</span>
@@ -312,15 +387,35 @@ export function ComparadorTabla({ proyectos, criterios }: Props) {
               })}
             </tr>
 
+            {/* Cuota préstamo amoblado — solo visible si al menos un proyecto lo tiene */}
+            {cuotaAmoblado.some(v => v !== null) && (
+              <tr className="border-t border-zinc-800/60 hover:bg-zinc-800/20 transition-colors">
+                <td className="px-4 py-3 text-xs text-zinc-500 whitespace-nowrap w-40 align-middle">
+                  Cuota amoblado
+                </td>
+                {cuotaAmoblado.map((v, idx) => {
+                  const g = idxGanadores(cuotaAmoblado, false)
+                  return (
+                    <td key={idx} className={`px-4 py-3 text-xs align-middle min-w-[160px] ${g.has(idx) ? CELDA_GANADORA : ''}`}>
+                      {v !== null
+                        ? <MontoPrivado valor={v} prefijo="$" decimales={0} className="text-zinc-300 font-mono" />
+                        : <span className="text-zinc-600">—</span>
+                      }
+                    </td>
+                  )
+                })}
+              </tr>
+            )}
+
             {/* Flujo c/Airbnb — verde si >0 */}
             <tr className="border-t border-zinc-800/60 hover:bg-zinc-800/20 transition-colors">
               <td className="px-4 py-3 text-xs text-zinc-500 whitespace-nowrap w-40 align-middle">
                 Flujo c/Airbnb
               </td>
               {proyectos.map((p, idx) => {
-                const g = ganador('flujo_con_airbnb', true)
+                const g = ganadores('flujo_con_airbnb', true)
                 return (
-                  <td key={p.id} className={`px-4 py-3 text-xs align-middle min-w-[160px] ${g === idx ? CELDA_GANADORA : ''}`}>
+                  <td key={p.id} className={`px-4 py-3 text-xs align-middle min-w-[160px] ${g.has(idx) ? CELDA_GANADORA : ''}`}>
                     {p.flujo_con_airbnb !== null
                       ? <MontoPrivado
                           valor={p.flujo_con_airbnb}
@@ -341,9 +436,9 @@ export function ComparadorTabla({ proyectos, criterios }: Props) {
                 Cobertura c/Airbnb
               </td>
               {proyectos.map((p, idx) => {
-                const g = ganador('cobertura_con_airbnb', true)
+                const g = ganadores('cobertura_con_airbnb', true)
                 return (
-                  <td key={p.id} className={`px-4 py-3 align-middle min-w-[160px] ${g === idx ? CELDA_GANADORA : ''}`}>
+                  <td key={p.id} className={`px-4 py-3 align-middle min-w-[160px] ${g.has(idx) ? CELDA_GANADORA : ''}`}>
                     <SemaforoROI tipo="cobertura" valor={p.cobertura_con_airbnb} />
                   </td>
                 )
@@ -356,9 +451,9 @@ export function ComparadorTabla({ proyectos, criterios }: Props) {
                 ROI anual
               </td>
               {proyectos.map((p, idx) => {
-                const g = ganador('roi_anual', true)
+                const g = ganadores('roi_anual', true)
                 return (
-                  <td key={p.id} className={`px-4 py-3 align-middle min-w-[160px] ${g === idx ? CELDA_GANADORA : ''}`}>
+                  <td key={p.id} className={`px-4 py-3 align-middle min-w-[160px] ${g.has(idx) ? CELDA_GANADORA : ''}`}>
                     <SemaforoROI tipo="roi" valor={p.roi_anual} />
                   </td>
                 )
@@ -368,7 +463,7 @@ export function ComparadorTabla({ proyectos, criterios }: Props) {
             <Fila
               label="Ganancia neta"
               valores={get('ganancia_neta')}
-              ganador={ganador('ganancia_neta', true)}
+              ganadores={ganadores('ganancia_neta', true)}
               render={v => v !== null
                 ? <MontoPrivado valor={v} prefijo="$" decimales={0} className="text-zinc-300 font-mono" />
                 : <span className="text-zinc-600">—</span>
@@ -381,7 +476,7 @@ export function ComparadorTabla({ proyectos, criterios }: Props) {
             <Fila
               label="Precio/noche est."
               valores={get('precio_noche_estimado')}
-              ganador={ganador('precio_noche_estimado', true)}
+              ganadores={ganadores('precio_noche_estimado', true)}
               render={v => v !== null
                 ? <MontoPrivado valor={v} prefijo="$" decimales={0} className="text-zinc-300 font-mono" />
                 : <span className="text-zinc-600">—</span>
@@ -391,7 +486,7 @@ export function ComparadorTabla({ proyectos, criterios }: Props) {
             <Fila
               label="Ocupación est."
               valores={get('ocupacion_estimada')}
-              ganador={ganador('ocupacion_estimada', true)}
+              ganadores={ganadores('ocupacion_estimada', true)}
               render={v => v !== null
                 ? <span className="text-zinc-300 font-mono">{v}%</span>
                 : <span className="text-zinc-600">—</span>
@@ -401,7 +496,7 @@ export function ComparadorTabla({ proyectos, criterios }: Props) {
             <Fila
               label="Ingreso neto/mes"
               valores={get('ingreso_neto_mensual')}
-              ganador={ganador('ingreso_neto_mensual', true)}
+              ganadores={ganadores('ingreso_neto_mensual', true)}
               render={v => v !== null
                 ? <MontoPrivado valor={v} prefijo="$" decimales={0} className="text-zinc-300 font-mono" />
                 : <span className="text-zinc-600">—</span>
@@ -414,7 +509,7 @@ export function ComparadorTabla({ proyectos, criterios }: Props) {
             <Fila
               label="Área interna m²"
               valores={get('area_interna_m2')}
-              ganador={ganador('area_interna_m2', true)}
+              ganadores={ganadores('area_interna_m2', true)}
               render={v => v !== null
                 ? <span className="text-zinc-300 font-mono">{v} m²</span>
                 : <span className="text-zinc-600">—</span>
@@ -424,7 +519,7 @@ export function ComparadorTabla({ proyectos, criterios }: Props) {
             <Fila
               label="Área balcón m²"
               valores={get('area_balcon_m2')}
-              ganador={ganador('area_balcon_m2', true)}
+              ganadores={ganadores('area_balcon_m2', true)}
               render={v => v !== null && v > 0
                 ? <span className="text-zinc-300 font-mono">{v} m²</span>
                 : <span className="text-zinc-600">—</span>
@@ -434,7 +529,7 @@ export function ComparadorTabla({ proyectos, criterios }: Props) {
             <Fila
               label="Precio/m²"
               valores={get('precio_m2')}
-              ganador={ganador('precio_m2', false)}
+              ganadores={ganadores('precio_m2', false)}
               render={v => v !== null
                 ? <MontoPrivado valor={v} prefijo="$" decimales={0} className="text-zinc-300 font-mono" />
                 : <span className="text-zinc-600">—</span>
@@ -460,7 +555,7 @@ export function ComparadorTabla({ proyectos, criterios }: Props) {
             <Fila
               label="Meses espera"
               valores={get('meses_espera')}
-              ganador={ganador('meses_espera', false)}
+              ganadores={ganadores('meses_espera', false)}
               render={v => v !== null
                 ? <span className="text-zinc-300 font-mono">{v} meses</span>
                 : <span className="text-zinc-600">—</span>
@@ -470,6 +565,17 @@ export function ComparadorTabla({ proyectos, criterios }: Props) {
             <FilaBool label="Parqueadero" valores={proyectos.map(p => p.tiene_parqueadero)} />
             <FilaBool label="Bodega"      valores={proyectos.map(p => p.tiene_bodega)} />
             <FilaBool label="Amoblado"    valores={proyectos.map(p => p.viene_amoblado)} />
+            <FilaBool label="Amoblado financiado" valores={proyectos.map(p => p.amoblado_financiado)} />
+
+            <Fila
+              label="Walk Score"
+              valores={get('walkability')}
+              ganadores={idxGanadores(get('walkability'), true)}
+              render={v => v !== null
+                ? <span className="text-zinc-300">{'★'.repeat(v)}{'☆'.repeat(5 - v)} <span className="text-zinc-500 text-[10px]">({v}/5)</span></span>
+                : <span className="text-zinc-600">—</span>
+              }
+            />
 
             {/* Amenidades — texto + ganador por cantidad */}
             <tr className="border-t border-zinc-800/60 hover:bg-zinc-800/20 transition-colors">
@@ -478,14 +584,12 @@ export function ComparadorTabla({ proyectos, criterios }: Props) {
               </td>
               {proyectos.map((p, idx) => {
                 const lista = p.amenidades ?? []
-                // Ganador = el que tiene más amenidades (si hay empate o todos tienen 0, nadie se resalta)
-                const maxCount = Math.max(...countAmenidades)
-                const esGanador = lista.length > 0 && lista.length === maxCount &&
-                  countAmenidades.filter(c => c === maxCount).length === 1
+                // Ganador = los que tienen más amenidades (empates se resaltan todos)
+                const ganadoresAmenidades = idxGanadores(countAmenidades, true)
                 return (
                   <td
                     key={p.id}
-                    className={`px-4 py-3 text-xs align-top min-w-[160px] ${esGanador ? CELDA_GANADORA : ''}`}
+                    className={`px-4 py-3 text-xs align-top min-w-[160px] ${ganadoresAmenidades.has(idx) ? CELDA_GANADORA : ''}`}
                   >
                     {lista.length > 0 ? (
                       <div className="flex flex-wrap gap-1">
@@ -516,7 +620,7 @@ export function ComparadorTabla({ proyectos, criterios }: Props) {
             <FilaScore
               label="Score total"
               scores={get('score_total')}
-              ganador={idxGanador(get('score_total'), true)}
+              ganadores={idxGanadores(get('score_total'), true)}
             />
 
             {/* Una fila por criterio activo */}
@@ -528,7 +632,7 @@ export function ComparadorTabla({ proyectos, criterios }: Props) {
                   key={c.clave}
                   label={c.nombre}
                   scores={scores}
-                  ganador={idxGanador(scores, true)}
+                  ganadores={idxGanadores(scores, true)}
                 />
               )
             })}
@@ -556,6 +660,52 @@ export function ComparadorTabla({ proyectos, criterios }: Props) {
 
         </table>
       </div>
+
+      {/* ── Panel de análisis IA comparativo ───────────────────────────── */}
+      {iaState?.error && (
+        <p className="text-sm text-red-400 bg-red-950/50 border border-red-900 rounded-lg px-3 py-2 mt-4">
+          {iaState.error}
+        </p>
+      )}
+
+      {iaState?.ok && iaState.analisis && (
+        <div className="mt-6 space-y-4 print:break-before-page">
+          <h2 className="text-lg font-semibold text-zinc-100">
+            Análisis IA comparativo
+            <span className="ml-2 text-xs font-normal text-zinc-500">Haiku</span>
+          </h2>
+
+          {/* Auditoría de realismo */}
+          <div className="bg-blue-950/40 border border-blue-800/50 rounded-lg p-4">
+            <p className="text-xs font-semibold text-blue-400 uppercase mb-2">
+              Auditoría de realismo
+            </p>
+            <p className="text-sm text-blue-200 whitespace-pre-line leading-relaxed">
+              {iaState.analisis.auditoria}
+            </p>
+          </div>
+
+          {/* Comparación */}
+          <div className="bg-zinc-800/80 border border-zinc-700 rounded-lg p-4">
+            <p className="text-xs font-semibold text-zinc-400 uppercase mb-2">
+              Comparación detallada
+            </p>
+            <p className="text-sm text-zinc-200 whitespace-pre-line leading-relaxed">
+              {iaState.analisis.comparacion}
+            </p>
+          </div>
+
+          {/* Veredicto */}
+          <div className="bg-emerald-950/40 border border-emerald-800/50 rounded-lg p-4">
+            <p className="text-xs font-semibold text-emerald-400 uppercase mb-2">
+              Veredicto
+            </p>
+            <p className="text-sm text-emerald-200 whitespace-pre-line leading-relaxed">
+              {iaState.analisis.veredicto}
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

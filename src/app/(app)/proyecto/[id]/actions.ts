@@ -38,6 +38,8 @@ function buildInputCalculos(
 
   return {
     precio_base:                          n('precio_base'),
+    descuento_valor:                      n('descuento_valor'),
+    descuento_tipo:                       ((p['descuento_tipo'] as string) ?? 'monto') as 'monto' | 'porcentaje',
     area_interna_m2:                      n('area_interna_m2'),
     area_balcon_m2:                       n('area_balcon_m2'),
     costo_parqueadero:                    n('costo_parqueadero'),
@@ -53,6 +55,8 @@ function buildInputCalculos(
     amoblado_financiado:                  (p['amoblado_financiado'] as boolean) ?? false,
     tasa_prestamo_amoblado:               n('tasa_prestamo_amoblado', 12),
     meses_prestamo_amoblado:              n('meses_prestamo_amoblado', 24),
+    seguro_mensual:                       nb('seguro_mensual'),
+    seguro_mensual_default:              config.seguro_mensual_default as number ?? 40,
     tiene_administracion_airbnb_incluida: (p['tiene_administracion_airbnb_incluida'] as boolean) ?? false,
     porcentaje_gestion_airbnb:            nb('porcentaje_gestion_airbnb'),
     alicuota_mensual:                     n('alicuota_mensual'),
@@ -82,6 +86,7 @@ function buildInputScoring(p: Record<string, unknown>, roi: number, precioM2: nu
     sector:                               (p['sector'] as string) ?? '',
     piso:                                 (p['piso'] as number | null) ?? null,
     orientacion:                          (p['orientacion'] as string | null) ?? null,
+    walkability:                          (p['walkability'] as number | null) ?? null,
     fiabilidad_constructora:              (p['fiabilidad_constructora'] as string | null) ?? null,
     anos_constructora:                    (p['anos_constructora'] as number | null) ?? null,
     proyectos_entregados:                 (p['proyectos_entregados'] as number | null) ?? null,
@@ -277,8 +282,10 @@ export async function guardarEdicion(
     amenidades:                 strs('amenidades'),
     unidades_disponibles:       num('unidades_disponibles'),
     preferencia:                str('preferencia'),
-    // Precio y amoblado
+    // Precio, descuento y amoblado
     precio_base,
+    descuento_valor:        numDef('descuento_valor', 0),
+    descuento_tipo:         str('descuento_tipo') ?? 'monto',
     viene_amoblado:             bool('viene_amoblado'),
     costo_amoblado:             num('costo_amoblado'),
     amoblado_financiado:        bool('amoblado_financiado'),
@@ -291,9 +298,10 @@ export async function guardarEdicion(
     num_cuotas_construccion:         num('num_cuotas_construccion'),
     porcentaje_contra_entrega:       num('porcentaje_contra_entrega'),
     // Financiamiento
-    banco:        str('banco'),
-    tasa_anual:   num('tasa_anual'),
-    anos_credito: num('anos_credito'),
+    banco:            str('banco'),
+    tasa_anual:       num('tasa_anual'),
+    anos_credito:     num('anos_credito'),
+    seguro_mensual:   num('seguro_mensual'),
     // Airbnb
     permite_airbnb:                        bool('permite_airbnb'),
     tiene_administracion_airbnb_incluida:  bool('tiene_administracion_airbnb_incluida'),
@@ -310,6 +318,7 @@ export async function guardarEdicion(
     plusvalia_anual: numDef('plusvalia_anual', 5),
     // Subjetivo
     confianza_subjetiva: num('confianza_subjetiva'),
+    walkability:         num('walkability'),
     confianza_notas:     str('confianza_notas'),
     notas:               str('notas'),
   }
@@ -410,29 +419,19 @@ export async function analizarConIA(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { ok: false, error: 'No autorizado' }
 
+  // Fetch proyecto + datos del sector en paralelo
   const { data: p } = await supabase.from('proyectos').select('*').eq('id', id).single()
   if (!p) return { ok: false, error: 'Proyecto no encontrado' }
+
+  const { data: sectorData } = await supabase
+    .from('sectores_scoring')
+    .select('nombre, score_base, airbnb_noche_min, airbnb_noche_max, plusvalia_anual_estimada, perfil')
+    .eq('nombre', p.sector)
+    .maybeSingle()
 
   const SYSTEM_PROMPT = `
 Eres un experto en inversión inmobiliaria en Quito, Ecuador, especializado en
 rentabilidad Airbnb para el sector norte de la ciudad.
-
-## Referencia de mercado por sector (Quito Norte, 2025)
-Usa estos datos para comparar precio/m² y precio/noche del proyecto contra el mercado:
-
-| Sector              | Precio/noche est. | Ocupación est. | Precio m² ref.       | Score ubicación |
-|---------------------|-------------------|----------------|----------------------|-----------------|
-| Quicentro           | $70–90            | 75–85%         | $2.200–2.800/m²      | 95              |
-| González Suárez     | $70–90            | 70–80%         | $2.200–2.800/m²      | 90              |
-| La Coruña           | $60–80            | 65–75%         | $1.900–2.400/m²      | 88              |
-| Quito Tenis         | $55–75            | 65–75%         | $1.800–2.200/m²      | 85              |
-| Granda Centeno      | $50–70            | 60–72%         | $1.700–2.100/m²      | 82              |
-| Bellavista          | $50–70            | 60–70%         | $1.700–2.100/m²      | 80              |
-| Iñaquito / La Carolina | $45–65         | 58–70%         | $1.600–2.000/m²      | 78              |
-| El Batán            | $45–65            | 58–68%         | $1.600–2.000/m²      | 76              |
-| La Pradera          | $40–60            | 55–65%         | $1.500–1.900/m²      | 74              |
-| La Floresta         | $40–60            | 55–65%         | $1.500–1.900/m²      | 74              |
-| Otros sectores      | $30–50            | 50–60%         | $1.200–1.600/m²      | 60              |
 
 ## Escala de confianza subjetiva (1–5)
 1 = muy desconfiado | 3 = neutral | 5 = muy confiado en el proyecto/vendedor
@@ -443,18 +442,35 @@ Usa estos datos para comparar precio/m² y precio/noche del proyecto contra el m
 - desconocida: sin información suficiente
 - conocida_con_retrasos: historial de incumplimientos — riesgo alto
 
+## Walk Score (1–5)
+1 = aislado (necesitas auto) | 3 = mixto | 5 = todo a pie (comercio, transporte < 5 min)
+
 ## Tu tarea
-Se te proporcionan todos los datos y métricas ya calculadas de un proyecto.
-Genera un análisis en español con estos 6 campos:
-1. fortaleza: La fortaleza clave para uso Airbnb (1 oración concreta, usa los datos reales)
-2. riesgo: El riesgo principal (1 oración, sé específico con números si aplica)
-3. recomendacion: Recomendación de inversión (1-2 oraciones, menciona si conviene negociar o esperar)
-4. alerta: Alerta crítica si aplica (cadena vacía "" si no hay ninguna)
-5. que_preguntar: 3-5 preguntas concretas para hacer al vendedor o a la constructora.
+Se te proporcionan los datos del proyecto Y los benchmarks reales del sector desde la base de datos.
+También se incluye la ubicación más precisa disponible (coordenadas > dirección > sector).
+
+Genera un análisis en español con estos 7 campos:
+
+1. **auditoria**: Auditoría de realismo de datos (2-4 oraciones). Cruza los datos ingresados
+   contra los benchmarks del sector:
+   - precio_noche_estimado vs rango airbnb_noche_min/max del sector
+   - ocupacion_estimada vs rango razonable para el perfil del sector
+   - plusvalia_anual vs plusvalia_anual_estimada del sector
+   - precio_m2 vs rango razonable del sector
+   - meses_espera vs avance_obra_porcentaje (¿son coherentes entre sí?)
+   Para cada dato que esté fuera de rango, indica el valor ingresado, el rango esperado,
+   y si esto infla o deflacta el ROI. Si la ubicación (coordenadas o dirección) sugiere
+   que está en una zona premium o periférica del sector, menciónalo.
+   Si todos los datos son realistas, di "Los datos ingresados son coherentes con el sector."
+
+2. **fortaleza**: La fortaleza clave para uso Airbnb (1 oración concreta, usa los datos reales)
+3. **riesgo**: El riesgo principal (1 oración, sé específico con números si aplica)
+4. **recomendacion**: Recomendación de inversión (1-2 oraciones, menciona si conviene negociar o esperar)
+5. **alerta**: Alerta crítica si aplica (cadena vacía "" si no hay ninguna)
+6. **que_preguntar**: 3-5 preguntas concretas para hacer al vendedor o a la constructora.
    Si hay contacto_nombre, personaliza ("pregúntale a [nombre] sobre...").
    Prioriza preguntas sobre datos faltantes o riesgos identificados.
-6. datos_faltantes: Lista de campos clave que están vacíos o en 0 y afectan la calidad del análisis
-   (ej: "precio_noche_estimado = 0 — sin esto el ROI Airbnb es una estimación ciega")
+7. **datos_faltantes**: Lista de campos clave que están vacíos o en 0 y afectan la calidad del análisis
 
 ## Criterios de alerta obligatoria
 - ROI anual < 5%
@@ -465,9 +481,11 @@ Genera un análisis en español con estos 6 campos:
 - permite_airbnb = false
 - precio_noche_estimado = 0 o null (sin dato de ingreso)
 - confianza_subjetiva <= 2 (feeling negativo del inversor)
+- Datos de auditoría con desviación significativa (>15%) sobre el techo del sector
 
 Devuelve ÚNICAMENTE JSON válido sin markdown, sin texto antes ni después:
 {
+  "auditoria": "",
   "fortaleza": "",
   "riesgo": "",
   "recomendacion": "",
@@ -488,8 +506,23 @@ Devuelve ÚNICAMENTE JSON válido sin markdown, sin texto antes ni después:
     reconocimientos_constructora: p.reconocimientos_constructora,
     contacto_nombre: p.contacto_nombre,
 
-    // Ubicación y unidad
+    // Ubicación (prioridad: coordenadas > dirección > sector)
+    latitud: p.latitud,
+    longitud: p.longitud,
+    direccion: p.direccion,
     sector: p.sector,
+    walkability: p.walkability,
+
+    // Benchmarks del sector (datos reales de la DB, no hardcoded)
+    benchmark_sector: sectorData ? {
+      airbnb_noche_min: sectorData.airbnb_noche_min,
+      airbnb_noche_max: sectorData.airbnb_noche_max,
+      plusvalia_anual_estimada: sectorData.plusvalia_anual_estimada,
+      score_base: sectorData.score_base,
+      perfil: sectorData.perfil,
+    } : null,
+
+    // Unidad
     tipo: p.tipo,
     area_interna_m2: p.area_interna_m2,
     piso: p.piso,
@@ -504,10 +537,13 @@ Devuelve ÚNICAMENTE JSON válido sin markdown, sin texto antes ni después:
 
     // Precio y financiamiento
     precio_base: p.precio_base,
+    descuento_valor: p.descuento_valor,
+    descuento_tipo: p.descuento_tipo,
     precio_m2: p.precio_m2,
     tasa_anual: p.tasa_anual,
     banco: p.banco,
     cuota_mensual: p.cuota_mensual,
+    seguro_mensual: p.seguro_mensual,
 
     // Timeline
     fecha_entrega: p.fecha_entrega,
@@ -535,8 +571,8 @@ Devuelve ÚNICAMENTE JSON válido sin markdown, sin texto antes ni después:
   }
 
   let analisis: {
-    fortaleza: string; riesgo: string; recomendacion: string; alerta: string;
-    que_preguntar: string[]; datos_faltantes: string[]
+    auditoria: string; fortaleza: string; riesgo: string; recomendacion: string;
+    alerta: string; que_preguntar: string[]; datos_faltantes: string[]
   }
 
   try {
@@ -558,6 +594,7 @@ Devuelve ÚNICAMENTE JSON válido sin markdown, sin texto antes ni después:
 
   const { error } = await supabase.from('proyectos').update({
     analisis_ia_generado: true,
+    auditoria_ia:    analisis.auditoria    ?? null,
     fortaleza_ia:    analisis.fortaleza    ?? null,
     riesgo_ia:       analisis.riesgo       ?? null,
     recomendacion_ia: analisis.recomendacion ?? null,

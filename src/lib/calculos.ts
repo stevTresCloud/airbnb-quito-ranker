@@ -7,11 +7,19 @@
 import type { InputCalculos, MetricasCalculadas } from '@/types/proyecto'
 
 export function calcularMetricas(p: InputCalculos): MetricasCalculadas {
+  // ── 0. Descuento sobre precio base ──────────────────────────────────────────
+  // Se aplica ANTES de todo cálculo. El precio_base original se preserva en DB.
+  const precio_base_efectivo = p.descuento_valor > 0
+    ? (p.descuento_tipo === 'porcentaje'
+        ? p.precio_base * (1 - p.descuento_valor / 100)
+        : p.precio_base - p.descuento_valor)
+    : p.precio_base
+
   // ── 1. Precio y área ─────────────────────────────────────────────────────────
   const area_total_m2 = p.area_interna_m2 + p.area_balcon_m2
-  const precio_total = p.precio_base + p.costo_parqueadero
+  const precio_total = precio_base_efectivo + p.costo_parqueadero
   // precio_m2 se calcula sobre área INTERNA (nunca incluye balcón)
-  const precio_m2 = p.precio_base / p.area_interna_m2
+  const precio_m2 = precio_base_efectivo / p.area_interna_m2
 
   // ── 1a. Estructura de pago (con fallback a defaults de configuracion) ─────────
   const reserva_efectiva = p.reserva ?? p.reserva_default
@@ -75,6 +83,11 @@ export function calcularMetricas(p: InputCalculos): MetricasCalculadas {
     total_intereses = total_pagado_credito - monto_financiar
   }
 
+  // ── 2b. Seguro hipotecario ─────────────────────────────────────────────────
+  // Costo fijo mensual exigido por el banco para el crédito hipotecario.
+  // Si el proyecto no tiene valor propio, usa el default de configuración.
+  const seguro_mensual_efectivo = p.seguro_mensual ?? p.seguro_mensual_default
+
   // ── 3. Ingresos Airbnb ───────────────────────────────────────────────────────
   // Si el edificio gestiona el Airbnb, su % reemplaza al % global de gastos
   const pct_gastos_efectivo = p.tiene_administracion_airbnb_incluida
@@ -86,15 +99,15 @@ export function calcularMetricas(p: InputCalculos): MetricasCalculadas {
   const ingreso_neto_mensual = ingreso_bruto_mensual - gastos_operativos
 
   // ── 4. Flujo mensual ─────────────────────────────────────────────────────────
-  // La alícuota sale del flujo siempre (no importa si hay Airbnb o no).
+  // La alícuota y el seguro salen del flujo siempre (no importa si hay Airbnb o no).
   // La cuota del préstamo de amoblado también sale si aplica.
   const sueldo_disponible = p.sueldo_neto * (p.porcentaje_ahorro / 100)
-  const flujo_sin_airbnb = sueldo_disponible - cuota_mensual - p.alicuota_mensual - cuota_prestamo_amoblado
-  const flujo_con_airbnb = sueldo_disponible + ingreso_neto_mensual - cuota_mensual - p.alicuota_mensual - cuota_prestamo_amoblado
+  const flujo_sin_airbnb = sueldo_disponible - cuota_mensual - p.alicuota_mensual - seguro_mensual_efectivo - cuota_prestamo_amoblado
+  const flujo_con_airbnb = sueldo_disponible + ingreso_neto_mensual - cuota_mensual - p.alicuota_mensual - seguro_mensual_efectivo - cuota_prestamo_amoblado
 
   // Cobertura: cuánto representa el ingreso disponible vs la obligación mensual total
-  // Incluye cuota banco + alícuota + cuota préstamo amoblado (si aplica)
-  const obligacion_mensual = cuota_mensual + p.alicuota_mensual + cuota_prestamo_amoblado
+  // Incluye cuota banco + alícuota + seguro + cuota préstamo amoblado (si aplica)
+  const obligacion_mensual = cuota_mensual + p.alicuota_mensual + seguro_mensual_efectivo + cuota_prestamo_amoblado
   const cobertura_sin_airbnb = obligacion_mensual > 0
     ? (sueldo_disponible / obligacion_mensual) * 100
     : 100
@@ -106,7 +119,8 @@ export function calcularMetricas(p: InputCalculos): MetricasCalculadas {
   const meses_productivos = (p.anos_proyeccion * 12) - p.meses_espera
   const airbnb_acumulado = ingreso_neto_mensual * Math.max(0, meses_productivos)
   // Plusvalía compuesta sobre precio_base (no incluye parqueadero ni amoblado)
-  const plusvalia_acumulada = p.precio_base * (Math.pow(1 + p.plusvalia_anual / 100, p.anos_proyeccion) - 1)
+  // Plusvalía compuesta sobre precio_base_efectivo (precio real de compra con descuento)
+  const plusvalia_acumulada = precio_base_efectivo * (Math.pow(1 + p.plusvalia_anual / 100, p.anos_proyeccion) - 1)
   const ganancia_bruta = plusvalia_acumulada + airbnb_acumulado
   // Los intereses del préstamo de amoblado son un costo real que reduce la ganancia
   const ganancia_neta = ganancia_bruta - total_intereses - intereses_prestamo_amoblado
@@ -124,6 +138,7 @@ export function calcularMetricas(p: InputCalculos): MetricasCalculadas {
     : 0
 
   return {
+    precio_base_efectivo,
     area_total_m2,
     precio_total,
     precio_m2,
@@ -138,6 +153,7 @@ export function calcularMetricas(p: InputCalculos): MetricasCalculadas {
     pago_entrada_neto,
     cuota_construccion,
     costo_amoblado_efectivo,
+    seguro_mensual_efectivo,
     cuota_prestamo_amoblado,
     intereses_prestamo_amoblado,
     cuota_mensual,

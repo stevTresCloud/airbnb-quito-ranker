@@ -75,8 +75,11 @@ export type ProyectoDetalle = {
   // Factor subjetivo
   confianza_subjetiva: number | null
   confianza_notas: string | null
+  walkability: number | null
   // Precio
   precio_base: number
+  descuento_valor: number
+  descuento_tipo: string
   precio_total: number | null
   precio_m2: number | null
   // Estructura de pago
@@ -96,6 +99,7 @@ export type ProyectoDetalle = {
   cuota_mensual: number | null
   total_intereses: number | null
   total_pagado_credito: number | null
+  seguro_mensual: number | null
   // Airbnb
   permite_airbnb: boolean
   tiene_administracion_airbnb_incluida: boolean
@@ -138,6 +142,7 @@ export type ProyectoDetalle = {
   score_total: number | null
   // IA
   analisis_ia_generado: boolean
+  auditoria_ia: string | null
   fortaleza_ia: string | null
   riesgo_ia: string | null
   recomendacion_ia: string | null
@@ -184,6 +189,11 @@ const AMENIDADES_LIST = [
   { value: 'fire_pit',        label: 'Fire Pit' },
   { value: 'salon_eventos',   label: 'Salón Eventos' },
   { value: 'terraza',         label: 'Terraza Panorámica' },
+  { value: 'media_room',      label: 'Media Room / Cine' },
+  { value: 'grill_house',     label: 'Grill House' },
+  { value: 'skybar',          label: 'Sky Bar' },
+  { value: 'club_house',      label: 'Club House' },
+  { value: 'comfort_lounge',  label: 'Comfort Lounge' },
 ]
 
 // ─── Utilidades de formato ────────────────────────────────────────────────────
@@ -411,6 +421,20 @@ function TabResumen({ proyecto: p, criterios, historialPrecios }: {
         <h2 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">Precio y área</h2>
         <div className="bg-zinc-900 rounded-lg divide-y divide-zinc-800 text-sm">
           <FilaDato label="Precio base"        valor={<MontoPrivado valor={p.precio_base} prefijo="$" />} />
+          {p.descuento_valor > 0 && (
+            <FilaDato
+              label="Descuento"
+              valor={
+                <span className="text-emerald-400 font-medium">
+                  {p.descuento_tipo === 'porcentaje'
+                    ? `−${p.descuento_valor}%`
+                    : <><span className="mr-0.5">−</span><MontoPrivado valor={p.descuento_valor} prefijo="$" /></>
+                  }
+                </span>
+              }
+              badge="emerald"
+            />
+          )}
           <FilaDato label="Precio total"       valor={<MontoPrivado valor={p.precio_total} prefijo="$" />} />
           <FilaDato label="Precio / m²"        valor={<MontoPrivado valor={p.precio_m2} prefijo="$" sufijo="/m²" />} />
           <FilaDato label="Área interna"       valor={`${p.area_interna_m2} m²`} />
@@ -418,6 +442,10 @@ function TabResumen({ proyecto: p, criterios, historialPrecios }: {
             <FilaDato label="Área balcón"      valor={`${p.area_balcon_m2} m²`} />
           )}
           <FilaDato label="Área total"         valor={`${p.area_total_m2 ?? (p.area_interna_m2 + p.area_balcon_m2)} m²`} />
+          <FilaDato label="Walk Score"         valor={p.walkability !== null
+            ? `${'★'.repeat(p.walkability)}${'☆'.repeat(5 - p.walkability)} (${p.walkability}/5)`
+            : <span className="text-zinc-500">Sin evaluar</span>
+          } />
         </div>
       </section>
 
@@ -441,6 +469,10 @@ function TabResumen({ proyecto: p, criterios, historialPrecios }: {
           <FilaDato label="Plazo"              valor={p.anos_credito ? `${p.anos_credito} años` : '—'} />
           <FilaDato label="Cuota mensual"      valor={<MontoPrivado valor={p.cuota_mensual} prefijo="$" />} />
           <FilaDato label="Total intereses"    valor={<MontoPrivado valor={p.total_intereses} prefijo="$" />} />
+          <FilaDato label="Seguro hipotecario"  valor={p.seguro_mensual !== null
+            ? <MontoPrivado valor={p.seguro_mensual} prefijo="$" sufijo="/mes" />
+            : <span className="text-zinc-500">usa config (default)</span>
+          } />
         </div>
       </section>
 
@@ -719,6 +751,7 @@ function TabEditar({
     tasa:       config ? `vacío = usa config (${config.tasa_default}%)` : '0 = sin intereses',
     anos:       config ? `vacío = usa config (${config.anos_credito_default} años)` : 'vacío = usa config',
     amoblado:   config ? `vacío = usa config ($${config.costo_amoblado_default})` : 'vacío = usa config',
+    seguro:     config ? `vacío = usa config ($${config.seguro_mensual_default})` : 'vacío = usa config',
   }
 
   const subTabCls = (key: SubTab) =>
@@ -992,6 +1025,18 @@ function TabEditar({
             <p className={HINT_CLS}>≤3 muestra badge rojo "¡Últimas!". ≤10 muestra "Pocas". Vacío muestra "?".</p>
           </Campo>
         </div>
+        <div className="grid grid-cols-2 gap-4">
+          <Campo label="Descuento">
+            <input type="number" step="0.01" name="descuento_valor" min="0" defaultValue={p.descuento_valor || ''} className={INPUT_CLS} placeholder="0 = sin descuento" />
+            <p className={HINT_CLS}>Monto o porcentaje de descuento. Se aplica sobre el precio base antes de calcular todo.</p>
+          </Campo>
+          <Campo label="Tipo de descuento">
+            <select name="descuento_tipo" defaultValue={p.descuento_tipo ?? 'monto'} className={SELECT_CLS}>
+              <option value="monto">$ Monto fijo (USD)</option>
+              <option value="porcentaje">% Porcentaje</option>
+            </select>
+          </Campo>
+        </div>
         <Campo label="Preferencia">
           <select name="preferencia" defaultValue={p.preferencia ?? ''} className={SELECT_CLS}>
             <option value="">Sin clasificar</option>
@@ -1080,6 +1125,12 @@ function TabEditar({
             <p className={HINT_CLS}>Duración del crédito hipotecario en años.</p>
           </Campo>
         </div>
+        <div className="grid grid-cols-3 gap-4">
+          <Campo label="Seguro hipotecario mensual ($)">
+            <input type="number" step="1" name="seguro_mensual" min="0" defaultValue={p.seguro_mensual ?? ''} className={INPUT_CLS} placeholder={ph.seguro} />
+            <p className={HINT_CLS}>Costo fijo mensual del seguro exigido por el banco. Se suma a la deuda mensual.</p>
+          </Campo>
+        </div>
       </Seccion>
       </div>{/* fin sub-tab pago */}
 
@@ -1150,6 +1201,17 @@ function TabEditar({
               <option key={n} value={n}>{n} {'★'.repeat(n)}</option>
             ))}
           </select>
+        </Campo>
+        <Campo label="Walk Score (1=aislado, 5=todo a pie)">
+          <select name="walkability" defaultValue={p.walkability ?? ''} className={SELECT_CLS}>
+            <option value="">— sin evaluar —</option>
+            <option value="1">1 — Aislado (necesitas auto para casi todo)</option>
+            <option value="2">2 — Dependiente de transporte</option>
+            <option value="3">3 — Mixto (algunos servicios cerca)</option>
+            <option value="4">4 — Casi todo a pie (&lt; 10 min)</option>
+            <option value="5">5 — Todo a pie (&lt; 5 min a comercio y transporte)</option>
+          </select>
+          <p className={HINT_CLS}>Qué tan caminable es la zona: cercanía a comercios, restaurantes, transporte. Afecta el score de ubicación (+3 pts por nivel).</p>
         </Campo>
         <Campo label="Notas sobre confianza">
           <textarea name="confianza_notas" rows={2} defaultValue={p.confianza_notas ?? ''}
@@ -1226,6 +1288,12 @@ function TabIA({
       {/* ── Análisis narrativo ────────────────────────────────────────── */}
       {hayAnalisis ? (
         <div className="space-y-4">
+          {p.auditoria_ia && (
+            <div className="bg-blue-950/40 border border-blue-800/50 rounded-lg p-4">
+              <p className="text-xs font-semibold text-blue-400 uppercase mb-1">🔍 Auditoría de realismo</p>
+              <p className="text-sm text-blue-200 whitespace-pre-line">{p.auditoria_ia}</p>
+            </div>
+          )}
           {p.fortaleza_ia && (
             <div className="bg-emerald-950/40 border border-emerald-800/50 rounded-lg p-4">
               <p className="text-xs font-semibold text-emerald-500 uppercase mb-1">💪 Fortaleza</p>

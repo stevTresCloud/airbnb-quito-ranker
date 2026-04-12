@@ -1657,3 +1657,237 @@ alter table sectores_scoring
 
 `IF NOT EXISTS` hace el script idempotente — se puede ejecutar dos veces sin error,
 útil para migraciones aplicadas manualmente en Supabase.
+
+---
+
+## Fase 9.1 — Nuevas amenidades (2026-04-11)
+
+### Amenidades "conocidas" vs "extras" en el scoring
+
+El motor de scoring (`scoring.ts`) distingue dos tipos de amenidades:
+
+1. **Conocidas**: tienen puntuación explícita (ej: spa/piscina +15, gym +8, bbq +6).
+   Se listan en un `Set` llamado `conocidas` para no contarlas doble.
+2. **Extras**: cualquier amenidad que no esté en el set `conocidas` suma +2 pts c/u
+   (máx 10 pts = 5 extras).
+
+Al agregar una amenidad nueva, decidir si merece puntuación propia o si se queda
+como "extra" genérico:
+- **Premium/social** (club_house, skybar): +6 pts → agregar al bloque explícito Y al set `conocidas`
+- **Comodidad estándar** (media_room, grill_house, comfort_lounge): dejar como extras (+2 c/u)
+
+Si no se agrega al set `conocidas`, la amenidad se cuenta como extra Y se podría
+contar doble si coincide con una regla explícita. Siempre mantener sincronizados
+ambos lugares.
+
+---
+
+## Fase 9.2 — Valores iguales en verde en comparador (2026-04-11)
+
+### Cambiar tipo de retorno de helper de ganador: `number` → `Set<number>`
+
+El comparador usaba `idxGanador()` que retornaba un solo índice (`number`).
+Cuando dos valores eran iguales y ambos eran el mejor, retornaba `-1` (nadie gana)
+porque la condición `numericos.every(v => v === referencia)` descartaba empates.
+
+**Fix:** Cambiar a `idxGanadores()` que retorna `Set<number>`. Ahora si 2 de 3
+proyectos tienen el mismo mejor valor, ambos se pintan verde.
+
+**Impacto en cascada:** Al cambiar el tipo de retorno del helper, hay que actualizar
+todos los consumidores — componentes `Fila` y `FilaScore` (prop `ganador: number` →
+`ganadores: Set<number>`), y todas las filas manuales que usaban `g === idx` →
+`g.has(idx)`. El refactor es mecánico pero toca ~20 puntos del archivo.
+
+**Lección:** Cuando un helper retorna un tipo diferente (`number` → `Set`), primero
+cambiar el helper, después hacer find-and-replace de la prop en los componentes
+genéricos, y finalmente actualizar las filas manuales (inline JSX). Verificar con
+grep que no quede ninguna referencia al nombre viejo.
+
+---
+
+## Fase 9.3 — Endeudamiento amoblado en comparador (2026-04-11)
+
+### Calcular valores derivados en cliente vs persistir en DB
+
+Cuando un dato calculado no se persiste en la tabla (como `cuota_prestamo_amoblado`),
+hay dos opciones para mostrarlo en el comparador:
+
+1. **Traer campos base + recalcular en cliente** — consistente con el patrón existente
+   (`aportePreEntrega` se calcula como `monto_entrada + monto_durante`).
+2. **Agregar columna calculada a la DB** — requiere SQL migration, más mantenimiento.
+
+Para el comparador se eligió la opción 1: traer `amoblado_financiado`, `costo_amoblado`,
+`tasa_prestamo_amoblado`, `meses_prestamo_amoblado` y calcular la cuota PMT en el
+componente. La fórmula PMT es idéntica a la de `calculos.ts` — duplicación mínima
+aceptable para evitar un cambio de schema.
+
+### Filas condicionales en el comparador
+
+Usar `{condicion && (<tr>...</tr>)}` para ocultar filas irrelevantes. La fila
+"Cuota amoblado" solo aparece si al menos un proyecto tiene `amoblado_financiado=true`
+y una cuota calculable. Esto evita mostrar filas vacías ("—" en todas las columnas).
+
+---
+
+## Fase 9.4 — Seguro hipotecario mensual (2026-04-11)
+
+### Agregar un costo fijo al modelo financiero (flujo completo)
+
+Agregar un campo que se suma a la obligación mensual requiere tocar toda la cadena:
+
+1. **SQL migration** — columna en `configuracion` (default global) y `proyectos` (override)
+2. **Tipos** — `InputCalculos` (input: campo + default) y `MetricasCalculadas` (output: valor efectivo)
+3. **calculos.ts** — resolver null → default, sumar a `obligacion_mensual`, afecta flujo/cobertura
+4. **Tests** — agregar al `BASE` y `CONFIG_DEFAULTS`, tests específicos del nuevo campo
+5. **UI config** — campo en `ConfiguracionForm.tsx`, update en `configuracion/actions.ts`
+6. **UI detalle** — campo en `DetalleProyecto.tsx` (editar + resumen), update en `proyecto/actions.ts`
+7. **UI nuevo** — agregar al `InputCalculos` en `nuevo/actions.ts` (null = usa default)
+8. **Comparador** — campo en tipo, query, y fila en tabla
+9. **CLAUDE.md** — schema + fórmulas
+
+El patrón es idéntico al de `alicuota_mensual` o `costo_amoblado`: `null` en el
+proyecto → usa default de config. Este patrón se repite para todo campo financiero
+configurable.
+
+### Placeholders con config en componentes que no reciben config
+
+`TabResumen` no recibe `config` como prop (solo `TabEditar` lo necesita para los
+placeholders del formulario). Para mostrar el valor del seguro en Resumen cuando es
+null, se usa un fallback textual `"usa config (default)"` en vez de acceder a
+`config.seguro_mensual_default`. Alternativa: pasar config a TabResumen — pero viola
+el principio de mínimo prop-drilling del proyecto.
+
+---
+
+## Fase 9.5 — Descuento en vivo (2026-04-11)
+
+### Aplicar transformaciones al inicio del pipeline de cálculo
+
+Un descuento sobre el precio base debe aplicarse **antes** de cualquier cálculo
+porque `precio_base` es la raíz de la cascada: precio_total, precio_m2, montos de
+pago, cuota bancaria, plusvalía, ROI — todo depende de él.
+
+En `calculos.ts`, el descuento se resuelve en el paso 0 (antes de todo):
+```ts
+const precio_base_efectivo = descuento_valor > 0
+  ? (descuento_tipo === 'porcentaje'
+      ? precio_base * (1 - descuento_valor / 100)
+      : precio_base - descuento_valor)
+  : precio_base
+```
+
+Luego se reemplaza `p.precio_base` por `precio_base_efectivo` en las 3 líneas donde
+se usaba: `precio_total`, `precio_m2`, y `plusvalia_acumulada`.
+
+El `precio_base` original se preserva en DB (nunca se sobreescribe) y se muestra en
+la UI de Resumen. Esto permite ver el precio original y el descuento lado a lado.
+
+### Campos con default `0` vs `null`
+
+`descuento_valor` usa default 0 (no null) porque la ausencia de descuento es un valor
+definido (0), no un "no sé". A diferencia de `seguro_mensual` donde null = "usar el
+default de config", aquí 0 = "sin descuento" y no existe un default global.
+La distinción importa para el patrón de resolución en `calculos.ts`.
+
+---
+
+## Fase 9.7 — Walk Score subjetivo (2026-04-11)
+
+### Bonus en un score existente vs nuevo criterio de scoring
+
+Para el walk score se eligió **bonus en `score_ubicacion`** en vez de crear un
+9º criterio de scoring. Razones:
+
+1. **Evita tocar pesos**: un nuevo criterio requiere redistribuir los 8 pesos
+   existentes (y que el usuario los re-configure). Un bonus es transparente.
+2. **Coherencia conceptual**: la walkability ES parte de la ubicación — es la
+   granularidad dentro del sector, no un eje independiente.
+3. **Proporcionalidad**: +3 pts por nivel (max +15) permite diferenciar dentro
+   del mismo sector sin dominar el score total. El sector aporta 0-95 base,
+   el walkability fino-ajusta.
+
+El patrón es el mismo que piso (+5/+10) y orientación (+5): bonus aditivos
+en `scoreUbicacion()` con `Math.min(100, score)` como techo.
+
+### Campos subjetivos: null vs 0
+
+`walkability` usa `null` (no 0) como default porque "no evaluado" es distinto
+de "score 0" (aislado). En la fórmula: `if (p.walkability !== null && p.walkability > 0)`.
+Esto evita que proyectos recién ingresados pierdan puntos antes de ser evaluados.
+
+---
+
+## Fase 9 Paso A — Auditoría de realismo en análisis IA individual (2026-04-11)
+
+### Enriquecer prompts de IA con datos de la DB en vez de hardcodear tablas
+
+El prompt original tenía una tabla hardcoded de referencia de mercado por sector.
+El nuevo prompt elimina esa tabla y en su lugar recibe `benchmark_sector` como parte
+de los datos del proyecto — un objeto con los valores reales de `sectores_scoring`
+(airbnb_min/max, plusvalía_estimada, perfil, score_base).
+
+**Ventaja:** Si el usuario edita los benchmarks de un sector en `/configuracion/sectores`,
+el análisis IA los usa automáticamente. Con la tabla hardcoded, había que actualizar
+el prompt cada vez que cambiaban los datos.
+
+### Priorización de ubicación: coordenadas > dirección > sector
+
+El prompt recibe los tres niveles de ubicación disponibles. Claude usa el más
+específico para contextualizar la auditoría:
+- lat/lng: "estas coordenadas están cerca de [landmark]"
+- dirección: "esta calle está en zona comercial/residencial"
+- sector: fallback genérico
+
+Esto no es magia — Claude razona sobre su conocimiento de Quito, no consulta
+APIs externas. Pero aporta más contexto que solo el nombre del sector.
+
+### Agregar campos al output de un prompt existente
+
+Al agregar `auditoria` al JSON de respuesta, se necesita actualizar:
+1. El prompt (instrucciones + JSON de ejemplo)
+2. El tipo TypeScript del `analisis` parsed
+3. El UPDATE a Supabase (nueva columna)
+4. El tipo `ProyectoDetalle` en el componente
+5. La UI que muestra el campo
+
+Todo en la misma función `analizarConIA`. No hay API route separada — es un
+Server Action que llama directo a la API de Anthropic.
+
+---
+
+## Fase 9.6 — Análisis IA comparativo (2026-04-11)
+
+### Server Actions con bind para pasar parámetros extra
+
+`useActionState` espera un action con firma `(prevState, formData)`. Para pasar
+los IDs de los proyectos, se usa `.bind(null, ids)` que fija el primer argumento:
+
+```ts
+const analizarConIds = analizarComparacion.bind(null, ids)
+const [state, action, pending] = useActionState(analizarConIds, null)
+```
+
+La firma real del Server Action es `(ids: string[], prev, formData)`. El bind
+convierte esto en `(prev, formData)` que es lo que useActionState espera.
+
+### Análisis IA sin persistencia vs con persistencia
+
+El análisis individual se persiste en DB (`fortaleza_ia`, `riesgo_ia`, etc.)
+porque es específico de una unidad y se quiere ver sin regenerar.
+
+El análisis comparativo NO se persiste porque:
+1. Los datos de los proyectos pueden cambiar entre análisis
+2. La combinación de proyectos comparados varía (A vs B, A vs C, etc.)
+3. No tiene sentido guardar un análisis que compara datos obsoletos
+
+Se retorna directamente en el `ActionState` y se muestra en el componente.
+Si el usuario recarga la página, se pierde — debe presionar el botón de nuevo.
+
+### Tipo de respuesta del Server Action como vehículo de datos
+
+En vez de guardar en DB y releer, el Server Action retorna los datos directamente:
+```ts
+return { ok: true, analisis: { auditoria, comparacion, veredicto } }
+```
+El componente lee `iaState.analisis` para renderizar. Esto es válido para datos
+transitorios que no necesitan persistencia.

@@ -20,13 +20,16 @@ const CAMPOS_SELECT = [
   'id', 'nombre', 'tipo', 'sector', 'estado', 'preferencia',
   // Financiero
   // aporte_propio_total no se almacena — se reconstruye en cliente con monto_entrada + monto_durante_construccion
-  'precio_total', 'cuota_mensual', 'alicuota_mensual', 'flujo_con_airbnb', 'cobertura_con_airbnb',
+  'precio_base', 'descuento_valor', 'descuento_tipo', 'precio_total', 'cuota_mensual', 'alicuota_mensual', 'flujo_con_airbnb', 'cobertura_con_airbnb',
   'roi_anual', 'ganancia_neta', 'monto_entrada', 'monto_durante_construccion',
+  'seguro_mensual',
+  // Amoblado / préstamo de amoblado (cuota se calcula en cliente con PMT)
+  'amoblado_financiado', 'costo_amoblado', 'tasa_prestamo_amoblado', 'meses_prestamo_amoblado',
   // Airbnb
   'precio_noche_estimado', 'ocupacion_estimada', 'ingreso_neto_mensual',
   // Unidad
   'area_interna_m2', 'area_balcon_m2', 'precio_m2', 'piso', 'pisos_totales',
-  'meses_espera', 'tiene_parqueadero', 'tiene_bodega', 'viene_amoblado', 'amenidades',
+  'meses_espera', 'tiene_parqueadero', 'tiene_bodega', 'viene_amoblado', 'walkability', 'amenidades',
   // Scores
   'score_total', 'score_roi', 'score_ubicacion', 'score_constructora',
   'score_entrega', 'score_equipamiento', 'score_precio_m2', 'score_calidad', 'score_confianza',
@@ -78,6 +81,7 @@ export default async function CompararPage({ searchParams }: PageProps) {
     <ComparadorTabla
       proyectos={proyectosOrdenados}
       criterios={(criteriosRaw ?? []) as CriterioComparar[]}
+      ids={ids}
     />
   )
 }

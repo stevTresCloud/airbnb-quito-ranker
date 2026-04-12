@@ -13,11 +13,14 @@ const CONFIG_DEFAULTS = {
   porcentaje_ahorro: 40,
   porcentaje_gastos_airbnb: 30,
   costo_amoblado_default: 6000,
+  seguro_mensual_default: 40,
   anos_proyeccion: 5,
 }
 
 const BASE: InputCalculos = {
   precio_base: 80000,
+  descuento_valor: 0,
+  descuento_tipo: 'monto',
   area_interna_m2: 40,
   area_balcon_m2: 5,
   costo_parqueadero: 10000,
@@ -33,6 +36,7 @@ const BASE: InputCalculos = {
   amoblado_financiado: false,
   tasa_prestamo_amoblado: 12,
   meses_prestamo_amoblado: 24,
+  seguro_mensual: null,
   tiene_administracion_airbnb_incluida: false,
   porcentaje_gestion_airbnb: null,
   alicuota_mensual: 80,
@@ -125,6 +129,47 @@ describe('calculos.ts', () => {
     })
     expect(r.cuota_prestamo_amoblado).toBe(0)
     expect(r.intereses_prestamo_amoblado).toBe(0)
+  })
+
+  it('seguro_mensual=null → usa seguro_mensual_default ($40) y reduce el flujo', () => {
+    const sinSeguro = calcularMetricas({ ...BASE, seguro_mensual: 0, seguro_mensual_default: 0 })
+    const conSeguro = calcularMetricas({ ...BASE, seguro_mensual: null }) // null → usa default $40
+    expect(conSeguro.seguro_mensual_efectivo).toBe(40)
+    // El flujo baja exactamente en $40
+    expect(sinSeguro.flujo_con_airbnb - conSeguro.flujo_con_airbnb).toBeCloseTo(40)
+    expect(sinSeguro.flujo_sin_airbnb - conSeguro.flujo_sin_airbnb).toBeCloseTo(40)
+  })
+
+  it('seguro_mensual explícito reemplaza el default', () => {
+    const r = calcularMetricas({ ...BASE, seguro_mensual: 60 })
+    expect(r.seguro_mensual_efectivo).toBe(60)
+  })
+
+  it('descuento_valor=0 → precio_base_efectivo = precio_base (sin cambio)', () => {
+    const r = calcularMetricas(BASE)
+    expect(r.precio_base_efectivo).toBe(80000)
+    expect(r.precio_total).toBe(90000) // 80000 + 10000 parqueadero
+  })
+
+  it('descuento tipo monto → reduce precio_base en USD fijos', () => {
+    const r = calcularMetricas({ ...BASE, descuento_valor: 5000, descuento_tipo: 'monto' })
+    expect(r.precio_base_efectivo).toBe(75000)
+    expect(r.precio_total).toBe(85000)
+    expect(r.precio_m2).toBeCloseTo(75000 / 40)
+  })
+
+  it('descuento tipo porcentaje → reduce precio_base en %', () => {
+    const r = calcularMetricas({ ...BASE, descuento_valor: 10, descuento_tipo: 'porcentaje' })
+    // 80000 * (1 - 10/100) = 72000
+    expect(r.precio_base_efectivo).toBe(72000)
+    expect(r.precio_total).toBe(82000)
+  })
+
+  it('descuento mejora el ROI (mismo ingreso Airbnb, menor inversión)', () => {
+    const sinDesc = calcularMetricas(BASE)
+    const conDesc = calcularMetricas({ ...BASE, descuento_valor: 10000, descuento_tipo: 'monto' })
+    expect(conDesc.roi_anual).toBeGreaterThan(sinDesc.roi_anual)
+    expect(conDesc.cuota_mensual).toBeLessThan(sinDesc.cuota_mensual)
   })
 
   it('aporte_propio_total no cuenta la reserva dos veces', () => {
