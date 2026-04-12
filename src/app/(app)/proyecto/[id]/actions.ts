@@ -579,7 +579,7 @@ Devuelve ÚNICAMENTE JSON válido sin markdown, sin texto antes ni después:
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
     const message = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1024,
+      max_tokens: 2048,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: JSON.stringify(resumen, null, 2) }],
     })
